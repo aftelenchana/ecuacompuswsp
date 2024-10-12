@@ -358,7 +358,6 @@ app.post('/check-session', (req, res) => {
 // Servir los QR codes generados como imágenes estáticas
 app.use('/qrcodes', express.static(path.join(__dirname, 'qrcodes')));
 
-// Iniciar el servidor en el puerto 3000
-app.listen(3000, () => {
+app.listen(3000, '0.0.0.0', () => {
     console.log('Servidor ejecutándose en el puerto 3000');
 });
