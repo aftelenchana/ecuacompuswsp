@@ -162,7 +162,7 @@ sock.ev.on('messages.upsert', async (m) => {
 }
 
 // Endpoint para iniciar una nueva sesión (POST)
-app.post('/start-session', async (req, res) => {
+app.post('/reset-session-prev', async (req, res) => {
     const { sessionId } = req.body;
 
     if (!sessionId) {
@@ -170,12 +170,58 @@ app.post('/start-session', async (req, res) => {
     }
 
     if (sessions[sessionId]) {
-        return res.status(400).send('Esta sesión ya está activa.');
+        return res.status(400).json({
+            success: false,
+            message: 'Esta sesión ya está activao se ha vuelto a activar.',
+            sessionId: sessionId
+        });
     }
 
     await createSession(sessionId);
     res.send({ message: 'Sesión iniciada. Escanea el código QR usando el endpoint GET /get-qr/:sessionId.' });
 });
+
+
+
+// Endpoint para cerrar una sesión existente (POST)
+app.post('/close-session', async (req, res) => {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+        return res.status(400).json({
+            success: false,
+            message: 'El sessionId es requerido.'
+        });
+    }
+
+    // Verificar si la sesión existe
+    if (!sessions[sessionId]) {
+        return res.status(404).json({
+            success: false,
+            message: 'La sesión no existe.',
+            sessionId: sessionId
+        });
+    }
+
+    // Intentar cerrar la sesión usando Baileys
+    try {
+        await sessions[sessionId].logout(); // Cierra la sesión
+        delete sessions[sessionId]; // Elimina la sesión de nuestra lista
+        console.log(`Sesión ${sessionId} cerrada correctamente.`);
+        return res.json({
+            success: true,
+            message: `Sesión ${sessionId} cerrada correctamente.`
+        });
+    } catch (error) {
+        console.error(`Error cerrando la sesión ${sessionId}:`, error);
+        return res.status(500).json({
+            success: false,
+            message: `Error al cerrar la sesión ${sessionId}`,
+            error: error.message
+        });
+    }
+});
+
 
 // Endpoint para obtener el QR de una sesión (GET)
 app.get('/get-qr/:sessionId', (req, res) => {
@@ -352,7 +398,39 @@ app.post('/check-session', (req, res) => {
 
 
 
+app.post('/close-session-prev', (req, res) => {
+    const { sessionId } = req.body;
 
+    if (!sessionId) {
+        return res.status(400).send('El sessionId es requerido.');
+    }
+
+    const session = sessions[sessionId];
+
+    if (!session) {
+        return res.status(404).send('Sesión no encontrada.');
+    }
+
+    // Cerrar la conexión y eliminar la sesión
+    session.end(true); // Terminar la sesión
+    delete sessions[sessionId]; // Eliminar la sesión del objeto de sesiones
+
+    // Eliminar el archivo QR si existe
+    const qrCodePath = path.join(__dirname, 'qrcodes', `${sessionId}.png`);
+    if (fs.existsSync(qrCodePath)) {
+        fs.unlinkSync(qrCodePath);
+        console.log(`Archivo QR ${qrCodePath} eliminado.`);
+    }
+
+    // Eliminar los archivos de credenciales si existen
+    const sessionDir = path.join(__dirname, 'sessions', sessionId);
+    if (fs.existsSync(sessionDir)) {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+        console.log(`Archivos de sesión para ${sessionId} eliminados.`);
+    }
+
+    res.send({ message: `Sesión ${sessionId} cerrada y eliminada correctamente.` });
+});
 
 
 // Servir los QR codes generados como imágenes estáticas
