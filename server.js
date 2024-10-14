@@ -95,7 +95,7 @@ sock.ev.on('messages.upsert', async (m) => {
             }
         }
 
-        if (messageContent.startsWith('guibis ')) {
+        if (messageContent.startsWith('guibis ') && sessionId === '4') {
             // Extraer el número de identificación
             const identificacion = messageContent.split(' ')[1];
         
@@ -184,7 +184,7 @@ app.post('/reset-session-prev', async (req, res) => {
 
 
 // Endpoint para cerrar una sesión existente (POST)
-app.post('/close-session', async (req, res) => {
+app.post('/close-session-full', async (req, res) => {
     const { sessionId } = req.body;
 
     if (!sessionId) {
@@ -246,7 +246,7 @@ app.post('/send-message', (req, res) => {
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).send('Sesión no encontrada.');
+        return res.status(404).json({ error: 'Sesión no encontrada.' });
     }
 
     session.sendMessage(`${to}@s.whatsapp.net`, { text: message })
@@ -265,7 +265,7 @@ app.post('/get-contacts', async (req, res) => {
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).send('Sesión no encontrada.');
+        return res.status(404).json({ error: 'Sesión no encontrada.' });
     }
 
     try {
@@ -290,7 +290,7 @@ app.post('/get-groups', async (req, res) => {
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).send('Sesión no encontrada.');
+        return res.status(404).json({ error: 'Sesión no encontrada.' });
     }
 
     try {
@@ -312,7 +312,7 @@ app.post('/get-all-chats', async (req, res) => {
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).send('Sesión no encontrada.');
+        return res.status(404).json({ error: 'Sesión no encontrada.' });
     }
 
     try {
@@ -343,7 +343,7 @@ app.post('/get-chat-by-number', async (req, res) => {
 
     // Verificar si la sesión existe
     if (!session) {
-        return res.status(404).send('Sesión no encontrada.');
+        return res.status(404).json({ error: 'Sesión no encontrada.' });
     }
 
     try {
@@ -386,7 +386,7 @@ app.post('/check-session', (req, res) => {
 
     // Comprobar si la sesión existe
     if (!session) {
-        return res.status(404).send('Sesión no encontrada.');
+        return res.status(404).json({ error: 'Sesión no encontrada.' });
     }
 
     // Devolver el estado actual de la sesión
@@ -408,7 +408,7 @@ app.post('/close-session-prev', (req, res) => {
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).send('Sesión no encontrada.');
+        return res.status(404).json({ error: 'Sesión no encontrada.' });
     }
 
     // Cerrar la conexión y eliminar la sesión
@@ -430,6 +430,30 @@ app.post('/close-session-prev', (req, res) => {
     }
 
     res.send({ message: `Sesión ${sessionId} cerrada y eliminada correctamente.` });
+});
+
+
+app.post('/start-session', async (req, res) => {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+        return res.status(400).json({ success: false, message: 'Falta el sessionId.' });
+    }
+
+    if (sessions[sessionId]) {
+        return res.status(400).json({
+            success: false,
+            message: `La sesión con ID ${sessionId} ya está activa.`,
+        });
+    }
+
+    try {
+        await createSession(sessionId);
+        res.status(200).json({ success: true, message: `Sesión ${sessionId} iniciada correctamente.` });
+    } catch (error) {
+        console.error('Error al crear la sesión:', error);
+        res.status(500).json({ success: false, message: 'Error al iniciar la sesión.' });
+    }
 });
 
 
