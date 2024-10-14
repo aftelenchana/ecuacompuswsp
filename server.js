@@ -5,6 +5,7 @@ const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios'); // Asegúrate de tener axios instalado
+const mime = require('mime-types'); // Para obtener el mime type de forma automática
 
 // Crear el store para almacenar contactos (declararlo globalmente)
 const store = makeInMemoryStore({});
@@ -110,11 +111,61 @@ sock.ev.on('messages.upsert', async (m) => {
                     // Obtener el array de mensajes de la respuesta
                     const mensajes = response.data?.mensajes || ['No existen datos en Guibis.'];
         
-                    // Unir los mensajes en una sola cadena
-                    const mensajeFinal = mensajes.join('\n'); // Unir con un salto de línea entre mensajes
+                    // Procesar cada mensaje por separado
+                    for (const mensaje of mensajes) {
+                        // Expresión regular para detectar URLs
+                        const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|pdf|mp4|docx|xlsx|zip|xml))/ig;
+                        const urlMatches = mensaje.match(urlRegex);
+                        const textWithoutUrls = mensaje.replace(urlRegex, '').trim();
         
-                    // Enviar la respuesta de la API
-                    await sock.sendMessage(from, { text: mensajeFinal });
+                        // Enviar el mensaje sin URLs
+                        await sock.sendMessage(from, { text: textWithoutUrls });
+        
+                        // Si hay URLs, procesarlas
+                        if (urlMatches && urlMatches.length > 0) {
+                            for (const fileUrl of urlMatches) {
+                                const fileName = path.basename(fileUrl);
+                                const filePath = path.join(__dirname, 'files', fileName);
+        
+                                // Verificar si el archivo ya existe
+                                if (!fs.existsSync(filePath)) {
+                                    // Descargar el archivo si no existe
+                                    const response = await axios({
+                                        url: fileUrl,
+                                        method: 'GET',
+                                        responseType: 'stream'
+                                    });
+        
+                                    // Guardar el archivo en la carpeta 'files'
+                                    const writer = fs.createWriteStream(filePath);
+                                    response.data.pipe(writer);
+        
+                                    await new Promise((resolve, reject) => {
+                                        writer.on('finish', resolve);
+                                        writer.on('error', reject);
+                                    });
+        
+                                    console.log(`Archivo descargado: ${filePath}`);
+                                } else {
+                                    console.log(`Archivo ya existe: ${filePath}`);
+                                }
+        
+                                // Leer el archivo descargado y convertirlo en un buffer
+                                const fileBuffer = fs.readFileSync(filePath);
+        
+                                // Detectar el tipo MIME automáticamente según la extensión del archivo
+                                const mimeType = mime.lookup(filePath) || 'application/octet-stream'; // Usa 'application/octet-stream' si no se puede detectar el tipo MIME
+        
+                                // Enviar archivo multimedia usando Baileys
+                                await sock.sendMessage(from, {
+                                    document: fileBuffer,
+                                    mimetype: mimeType,
+                                    fileName: fileName,
+                                });
+                                console.log(`Archivo multimedia enviado: ${filePath}`);
+                            }
+                        }
+                    }
                 } catch (error) {
                     console.error('Error al consumir la API:', error);
                     const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
@@ -124,36 +175,9 @@ sock.ev.on('messages.upsert', async (m) => {
                 await sock.sendMessage(from, { text: 'Por favor, proporciona un número de identificación válido.' });
             }
         }
+        
 
-        if (messageContent.startsWith('lgcontaduria ')) {
-            // Extraer el número de identificación
-            const identificacion = messageContent.split(' ')[1];
-        
-            // Comprobar si se proporcionó un número de identificación
-            if (identificacion) {
-                try {
-                    // Llamar a la API
-                    const response = await axios.post('https://guibis.com/dev/wspguibis/', {
-                        identificacion: identificacion.trim()
-                    });
-        
-                    // Obtener el array de mensajes de la respuesta
-                    const mensajes = response.data?.mensajes || ['No existen datos en Guibis.'];
-        
-                    // Unir los mensajes en una sola cadena
-                    const mensajeFinal = mensajes.join('\n'); // Unir con un salto de línea entre mensajes
-        
-                    // Enviar la respuesta de la API
-                    await sock.sendMessage(from, { text: mensajeFinal });
-                } catch (error) {
-                    console.error('Error al consumir la API:', error);
-                    const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
-                    await sock.sendMessage(from, { text: errorMessage });
-                }
-            } else {
-                await sock.sendMessage(from, { text: 'Por favor, proporciona un número de identificación válido.' });
-            }
-        }
+
     }
 });
 
@@ -235,8 +259,8 @@ app.get('/get-qr/:sessionId', (req, res) => {
     }
 });
 
-// Endpoint para enviar mensajes (POST)
-app.post('/send-message', (req, res) => {
+// Endpoint para enviar mensajes
+app.post('/send-message', async (req, res) => {
     const { sessionId, to, message } = req.body;
 
     if (!sessionId || !to || !message) {
@@ -249,9 +273,67 @@ app.post('/send-message', (req, res) => {
         return res.status(404).json({ error: 'Sesión no encontrada.' });
     }
 
-    session.sendMessage(`${to}@s.whatsapp.net`, { text: message })
-        .then(() => res.send('Mensaje enviado correctamente.'))
-        .catch(err => res.status(500).send('Error al enviar el mensaje: ' + err.message));
+    try {
+        // Expresión regular para detectar URLs de archivos multimedia
+        const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|pdf|mp4|docx|xlsx|zip|xml))/ig;
+        const urlMatches = message.match(urlRegex);
+        const textWithoutUrls = message.replace(urlRegex, '').trim();
+
+        if (urlMatches && urlMatches.length > 0) {
+            // Procesar cada URL detectada
+            for (const fileUrl of urlMatches) {
+                const fileName = path.basename(fileUrl);
+                const filePath = path.join(__dirname, 'files', fileName);
+
+                // Verificar si el archivo ya existe
+                if (!fs.existsSync(filePath)) {
+                    // Descargar el archivo
+                    const response = await axios({
+                        url: fileUrl,
+                        method: 'GET',
+                        responseType: 'stream'
+                    });
+
+                    // Guardar el archivo en la carpeta 'files'
+                    const writer = fs.createWriteStream(filePath);
+                    response.data.pipe(writer);
+
+                    await new Promise((resolve, reject) => {
+                        writer.on('finish', resolve);
+                        writer.on('error', reject);
+                    });
+
+                    console.log(`Archivo descargado: ${filePath}`);
+                } else {
+                    console.log(`Archivo ya existe: ${filePath}`);
+                }
+
+                // Leer el archivo descargado y convertirlo en un buffer
+                const fileBuffer = fs.readFileSync(filePath);
+
+                // Detectar el tipo MIME automáticamente según la extensión del archivo
+                const mimeType = mime.lookup(filePath) || 'application/octet-stream'; // Usa 'application/octet-stream' si no se puede detectar el tipo MIME
+
+                // Enviar archivo multimedia usando Baileys
+                await session.sendMessage(`${to}@s.whatsapp.net`, {
+                    document: fileBuffer,
+                    mimetype: mimeType,
+                    fileName: fileName,
+                });
+                console.log(`Archivo multimedia enviado: ${filePath}`);
+            }
+        }
+
+        // Si hay texto sin URLs, enviar como mensaje de texto
+        if (textWithoutUrls) {
+            await session.sendMessage(`${to}@s.whatsapp.net`, { text: textWithoutUrls });
+            console.log('Mensaje de texto enviado correctamente.');
+        }
+
+        res.send('Mensaje enviado correctamente.');
+    } catch (err) {
+        res.status(500).send('Error al enviar el mensaje: ' + err.message);
+    }
 });
 
 // Endpoint para obtener contactos (POST)
@@ -457,9 +539,39 @@ app.post('/start-session', async (req, res) => {
 });
 
 
+// Cargar sesiones existentes al iniciar el servidor
+async function loadExistingSessions() {
+    const sessionsDir = './sessions';
+    const sessionDirs = fs.readdirSync(sessionsDir).filter(file => fs.statSync(path.join(sessionsDir, file)).isDirectory());
+
+    for (const sessionId of sessionDirs) {
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+            try {
+                await createSession(sessionId);
+                console.log(`Sesión ${sessionId} cargada correctamente.`);
+                break; // Salir del bucle si la sesión se carga correctamente
+            } catch (error) {
+                attempts++;
+                console.error(`Error al cargar la sesión ${sessionId}. Intento ${attempts} de ${maxAttempts}.`, error);
+
+                if (attempts === maxAttempts) {
+                    console.error(`No se pudo cargar la sesión ${sessionId} después de ${maxAttempts} intentos. Pasando a la siguiente.`);
+                }
+            }
+        }
+    }
+}
+
+
+
 // Servir los QR codes generados como imágenes estáticas
 app.use('/qrcodes', express.static(path.join(__dirname, 'qrcodes')));
 
 app.listen(3000, '0.0.0.0', () => {
     console.log('Servidor ejecutándose en el puerto 3000');
+    loadExistingSessions(); // Cargar sesiones existentes (sin await)
+    console.log('Iniciando carga de sesiones existentes...');
 });
