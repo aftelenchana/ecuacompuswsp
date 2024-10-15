@@ -49,10 +49,10 @@ async function createSession(sessionId) {
         }
 
         if (connection === 'open') {
-            sock.connectionStatus = "activa"; // Actualizar estado a activa
             console.log(`Conexión abierta para la sesión ${sessionId}`);
+            sock.connectionStatus = "activa"; // Actualizar estado a activa
         } else if (connection === 'close') {
-            sock.connectionStatus = "inactiva"; // Actualizar estado a inactiva
+             sock.connectionStatus = "inactiva"; // Actualizar estado a inactiva
             const shouldReconnect = (lastDisconnect.error = Boom)?.output?.statusCode !== 401;
             console.log(`Conexión cerrada para la sesión ${sessionId}. Reintentando...`);
             if (shouldReconnect) {
@@ -96,7 +96,7 @@ sock.ev.on('messages.upsert', async (m) => {
             }
         }
 
-        if (messageContent.startsWith('guibis ') && sessionId === '4') {
+        if (messageContent.startsWith('guibis ') && sessionId === 'D395771085AAB05244A4FB8FD91BF4EE') {
             // Extraer el número de identificación
             const identificacion = messageContent.split(' ')[1];
         
@@ -330,11 +330,14 @@ app.post('/send-message', async (req, res) => {
             console.log('Mensaje de texto enviado correctamente.');
         }
 
-        res.send('Mensaje enviado correctamente.');
+        res.json({ message: 'Mensaje enviado correctamente.' });
     } catch (err) {
         res.status(500).send('Error al enviar el mensaje: ' + err.message);
     }
 });
+
+
+
 
 // Endpoint para obtener contactos (POST)
 app.post('/get-contacts', async (req, res) => {
@@ -550,20 +553,31 @@ async function loadExistingSessions() {
 
         while (attempts < maxAttempts) {
             try {
+                // Intentar crear la sesión y almacenar el socket en el objeto sessions
                 await createSession(sessionId);
                 console.log(`Sesión ${sessionId} cargada correctamente.`);
+
+                // Actualizar estado a activa en el objeto sessions
+                sessions[sessionId].connectionStatus = "activa"; 
                 break; // Salir del bucle si la sesión se carga correctamente
             } catch (error) {
                 attempts++;
                 console.error(`Error al cargar la sesión ${sessionId}. Intento ${attempts} de ${maxAttempts}.`, error);
 
+                // Si se alcanzó el número máximo de intentos
                 if (attempts === maxAttempts) {
                     console.error(`No se pudo cargar la sesión ${sessionId} después de ${maxAttempts} intentos. Pasando a la siguiente.`);
+                    
+                    // Actualizar estado a inactiva en el objeto sessions
+                    if (sessions[sessionId]) {
+                        sessions[sessionId].connectionStatus = "inactiva"; 
+                    }
                 }
             }
         }
     }
 }
+
 
 
 
