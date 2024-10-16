@@ -385,7 +385,6 @@ app.post('/get-contacts', async (req, res) => {
 
 
 function timeoutPromise(promise, ms) {
-    // Crea un timeout que rechaza la promesa si no se resuelve dentro del tiempo especificado
     const timeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Tiempo agotado')), ms)
     );
@@ -406,57 +405,32 @@ app.post('/get-groups', async (req, res) => {
     }
 
     try {
-        // Limitar la búsqueda de grupos a 10 segundos (8000 ms)
+        // Limitar la búsqueda de grupos a 8 segundos
         const groups = await timeoutPromise(session.groupFetchAllParticipating(), 8000);
 
-        if (groups && groups.length > 0) {
+        if (groups && Object.keys(groups).length > 0) {
             res.json(groups); // Si se encuentran grupos, los devuelve
         } else {
-            res.status(404).json({ error: 'No se encontraron grupos.' }); // Si no hay grupos, envía este mensaje
+            res.status(404).json({ error: 'No se encontraron grupos.' });
         }
     } catch (err) {
+        // Manejar el error de tiempo de espera sin mostrarlo en consola
         if (err.message === 'Tiempo agotado') {
-            // Si el error es por el tiempo agotado, responde con un mensaje adecuado
-            res.status(408).json({ 
+            // No mostrar el error en consola, solo enviar una respuesta JSON
+            return res.status(408).json({ 
                 status: 'error', 
-                message: 'No se encontraron grupos en el tiempo permitido.' 
-            });
-        } else {
-            // Para cualquier otro error
-            res.status(500).json({ 
-                status: 'error', 
-                message: 'Error al obtener la lista de grupos: ' + err.message 
+                message: 'Tiempo de espera agotado. No se encontraron grupos en el tiempo permitido.' 
             });
         }
+
+        // Para cualquier otro error, envía un mensaje JSON sin imprimir en consola
+        res.status(500).json({ 
+            status: 'error', 
+            message: 'Error al obtener la lista de grupos.' 
+        });
     }
 });
 
-
-app.post('/get-all-chats', async (req, res) => {
-    const { sessionId } = req.body;
-
-    if (!sessionId) {
-        return res.status(400).send('El sessionId es requerido.');
-    }
-
-    const session = sessions[sessionId];
-
-    if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
-    }
-
-    try {
-        // Verificar si store.chats está definido y contiene conversaciones
-        if (!store.chats || store.chats.all().length === 0) {
-            return res.status(404).send('No se encontraron conversaciones.');
-        }
-
-        const chats = store.chats.all(); // Obtener todos los chats
-        res.json(chats);
-    } catch (err) {
-        res.status(500).send('Error al obtener las conversaciones: ' + err.message);
-    }
-});
 
 
 
