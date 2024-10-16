@@ -1,5 +1,6 @@
 const cors = require('cors'); // Importa el paquete cors
 const express = require('express');
+const PORT = process.env.PORT || 3000; // Cambiar 3000 a la variable de entorno
 const { default: makeWASocket, useMultiFileAuthState, makeInMemoryStore, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode');
@@ -603,10 +604,9 @@ async function loadExistingSessions() {
 // Servir los QR codes generados como imágenes estáticas
 app.use('/qrcodes', express.static(path.join(__dirname, 'qrcodes')));
 
-app.listen(3000, '0.0.0.0', () => {
-    console.log('Servidor ejecutándose en el puerto 3000');
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Servidor ejecutándose en el puerto ${PORT}`);
     loadExistingSessions(); // Cargar sesiones existentes (sin await)
     console.log('Iniciando carga de sesiones existentes...');
 });
-
 
