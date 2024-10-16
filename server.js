@@ -1,6 +1,7 @@
-const { default: makeWASocket, useMultiFileAuthState, makeInMemoryStore } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
+const cors = require('cors'); // Importa el paquete cors
 const express = require('express');
+const { default: makeWASocket, useMultiFileAuthState, makeInMemoryStore, DisconnectReason } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
@@ -19,6 +20,7 @@ setInterval(() => {
 }, 10_000);
 
 const app = express();
+app.use(cors()); // Habilita CORS para todas las rutas
 app.use(express.json());
 
 // Almacenar las sesiones en un objeto
@@ -207,7 +209,7 @@ app.post('/reset-session-prev', async (req, res) => {
 
 
 
-// Endpoint para cerrar una sesión existente (POST)
+// Ruta para cerrar sesión
 app.post('/close-session-full', async (req, res) => {
     const { sessionId } = req.body;
 
@@ -227,15 +229,32 @@ app.post('/close-session-full', async (req, res) => {
         });
     }
 
-    // Intentar cerrar la sesión usando Baileys
     try {
-        await sessions[sessionId].logout(); // Cierra la sesión
-        delete sessions[sessionId]; // Elimina la sesión de nuestra lista
+        const sock = sessions[sessionId];
+
+        // Cerrar la sesión y eliminar del almacenamiento
+        await sock.logout();
+        delete sessions[sessionId]; 
+
+         // Eliminar la carpeta de sesión
+         const sessionPath = path.join(__dirname, 'sessions', sessionId);
+         fs.rmdir(sessionPath, { recursive: true }, (err) => {
+             if (err) {
+                 console.error(`Error al eliminar la carpeta de la sesión ${sessionId}:`, err);
+             } else {
+                 console.log(`Carpeta de la sesión ${sessionId} eliminada correctamente.`);
+             }
+         });
+ 
+
+
+
         console.log(`Sesión ${sessionId} cerrada correctamente.`);
         return res.json({
             success: true,
             message: `Sesión ${sessionId} cerrada correctamente.`
         });
+
     } catch (error) {
         console.error(`Error cerrando la sesión ${sessionId}:`, error);
         return res.status(500).json({
@@ -245,6 +264,7 @@ app.post('/close-session-full', async (req, res) => {
         });
     }
 });
+
 
 
 // Endpoint para obtener el QR de una sesión (GET)
@@ -364,12 +384,19 @@ app.post('/get-contacts', async (req, res) => {
 
 
 
-// Endpoint para obtener la lista de grupos (POST)
+function timeoutPromise(promise, ms) {
+    // Crea un timeout que rechaza la promesa si no se resuelve dentro del tiempo especificado
+    const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Tiempo agotado')), ms)
+    );
+    return Promise.race([promise, timeout]);
+}
+
 app.post('/get-groups', async (req, res) => {
     const { sessionId } = req.body;
 
     if (!sessionId) {
-        return res.status(400).send('El sessionId es requerido.');
+        return res.status(400).json({ error: 'El sessionId es requerido.' });
     }
 
     const session = sessions[sessionId];
@@ -379,10 +406,28 @@ app.post('/get-groups', async (req, res) => {
     }
 
     try {
-        const groups = await session.groupFetchAllParticipating();
-        res.json(groups);
+        // Limitar la búsqueda de grupos a 10 segundos (8000 ms)
+        const groups = await timeoutPromise(session.groupFetchAllParticipating(), 8000);
+
+        if (groups && groups.length > 0) {
+            res.json(groups); // Si se encuentran grupos, los devuelve
+        } else {
+            res.status(404).json({ error: 'No se encontraron grupos.' }); // Si no hay grupos, envía este mensaje
+        }
     } catch (err) {
-        res.status(500).send('Error al obtener la lista de grupos: ' + err.message);
+        if (err.message === 'Tiempo agotado') {
+            // Si el error es por el tiempo agotado, responde con un mensaje adecuado
+            res.status(408).json({ 
+                status: 'error', 
+                message: 'No se encontraron grupos en el tiempo permitido.' 
+            });
+        } else {
+            // Para cualquier otro error
+            res.status(500).json({ 
+                status: 'error', 
+                message: 'Error al obtener la lista de grupos: ' + err.message 
+            });
+        }
     }
 });
 
@@ -589,3 +634,5 @@ app.listen(3000, '0.0.0.0', () => {
     loadExistingSessions(); // Cargar sesiones existentes (sin await)
     console.log('Iniciando carga de sesiones existentes...');
 });
+
+
