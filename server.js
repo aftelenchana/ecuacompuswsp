@@ -280,6 +280,8 @@ app.get('/get-qr/:sessionId', (req, res) => {
     }
 });
 
+
+
 // Endpoint para enviar mensajes
 app.post('/send-message', async (req, res) => {
     const { sessionId, to, message } = req.body;
@@ -288,20 +290,37 @@ app.post('/send-message', async (req, res) => {
         return res.status(400).send('sessionId, to y message son requeridos.');
     }
 
+    // Buscar la sesión en el objeto 'sessions'
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
     try {
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
         // Expresión regular para detectar URLs de archivos multimedia
         const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|pdf|mp4|docx|xlsx|zip|xml))/ig;
         const urlMatches = message.match(urlRegex);
         const textWithoutUrls = message.replace(urlRegex, '').trim();
 
+        // Procesar archivos multimedia
         if (urlMatches && urlMatches.length > 0) {
-            // Procesar cada URL detectada
             for (const fileUrl of urlMatches) {
                 const fileName = path.basename(fileUrl);
                 const filePath = path.join(__dirname, 'files', fileName);
@@ -333,7 +352,7 @@ app.post('/send-message', async (req, res) => {
                 const fileBuffer = fs.readFileSync(filePath);
 
                 // Detectar el tipo MIME automáticamente según la extensión del archivo
-                const mimeType = mime.lookup(filePath) || 'application/octet-stream'; // Usa 'application/octet-stream' si no se puede detectar el tipo MIME
+                const mimeType = mime.lookup(filePath) || 'application/octet-stream';
 
                 // Enviar archivo multimedia usando Baileys
                 await session.sendMessage(`${to}@s.whatsapp.net`, {
@@ -345,7 +364,7 @@ app.post('/send-message', async (req, res) => {
             }
         }
 
-        // Si hay texto sin URLs, enviar como mensaje de texto
+        // Enviar texto si hay algún mensaje sin URLs
         if (textWithoutUrls) {
             await session.sendMessage(`${to}@s.whatsapp.net`, { text: textWithoutUrls });
             console.log('Mensaje de texto enviado correctamente.');
@@ -358,8 +377,6 @@ app.post('/send-message', async (req, res) => {
 });
 
 
-
-
 // Endpoint para obtener contactos (POST)
 app.post('/get-contacts', async (req, res) => {
     const { sessionId } = req.body;
@@ -370,19 +387,37 @@ app.post('/get-contacts', async (req, res) => {
 
     const session = sessions[sessionId];
 
+    // Verificar si la sesión existe en la memoria
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
     try {
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
+        // Si la carpeta no está vacía, se asume que la sesión está completa
         // Acceder a los contactos desde store.contacts
         const contacts = store.contacts;
         res.json(contacts);
+
     } catch (err) {
         res.status(500).send('Error al obtener los contactos: ' + err.message);
     }
 });
-
 
 
 function timeoutPromise(promise, ms) {
@@ -489,16 +524,42 @@ app.post('/check-session', (req, res) => {
     // Buscar la sesión en el objeto 'sessions'
     const session = sessions[sessionId];
 
-    // Comprobar si la sesión existe
+    // Comprobar si la sesión existe en memoria
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
-    // Devolver el estado actual de la sesión
-    res.json({
-        sessionId: sessionId,
-        status: session.connectionStatus // Devuelve "activa" o "inactiva"
-    });
+    try {
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(200).json({
+                sessionId: sessionId,
+                status: 'inactiva', // La sesión no ha sido completada (QR no escaneado)
+                message: 'La sesión no ha sido completada (no se ha escaneado el QR).'
+            });
+        }
+
+        // Si la carpeta no está vacía, la sesión se considera completada
+        res.status(200).json({
+            sessionId: sessionId,
+            status: 'activa', // Sesión completada
+            message: 'La sesión está completa.'
+        });
+
+    } catch (err) {
+        res.status(500).send('Error al verificar la sesión: ' + err.message);
+    }
 });
 
 
