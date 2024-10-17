@@ -427,6 +427,9 @@ function timeoutPromise(promise, ms) {
     return Promise.race([promise, timeout]);
 }
 
+
+
+// Endpoint para obtener grupos
 app.post('/get-groups', async (req, res) => {
     const { sessionId } = req.body;
 
@@ -434,13 +437,30 @@ app.post('/get-groups', async (req, res) => {
         return res.status(400).json({ error: 'El sessionId es requerido.' });
     }
 
+    // Buscar la sesión en el objeto 'sessions'
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
     try {
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
         // Limitar la búsqueda de grupos a 8 segundos
         const groups = await timeoutPromise(session.groupFetchAllParticipating(), 8000);
 
@@ -452,17 +472,16 @@ app.post('/get-groups', async (req, res) => {
     } catch (err) {
         // Manejar el error de tiempo de espera sin mostrarlo en consola
         if (err.message === 'Tiempo agotado') {
-            // No mostrar el error en consola, solo enviar una respuesta JSON
-            return res.status(408).json({ 
-                status: 'error', 
-                message: 'Tiempo de espera agotado. No se encontraron grupos en el tiempo permitido.' 
+            return res.status(408).json({
+                status: 'error',
+                message: 'Tiempo de espera agotado. No se encontraron grupos en el tiempo permitido.'
             });
         }
 
         // Para cualquier otro error, envía un mensaje JSON sin imprimir en consola
-        res.status(500).json({ 
-            status: 'error', 
-            message: 'Error al obtener la lista de grupos.' 
+        res.status(500).json({
+            status: 'error',
+            message: 'Error al obtener la lista de grupos.'
         });
     }
 });
@@ -470,7 +489,54 @@ app.post('/get-groups', async (req, res) => {
 
 
 
-// Endpoint para obtener la conversación de un número específico (POST)
+// Endpoint para obtener todas las conversaciones (chats)
+app.post('/get-all-chats', async (req, res) => {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+        return res.status(400).send('El sessionId es requerido.');
+    }
+
+    // Buscar la sesión en el objeto 'sessions'
+    const session = sessions[sessionId];
+
+    if (!session) {
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
+    }
+
+    try {
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
+        // Verificar si 'store.chats' está definido y contiene conversaciones
+        if (!store.chats || store.chats.all().length === 0) {
+            return res.status(404).send('No se encontraron conversaciones.');
+        }
+
+        const chats = store.chats.all(); // Obtener todos los chats
+        res.json(chats);
+    } catch (err) {
+        res.status(500).send('Error al obtener las conversaciones: ' + err.message);
+    }
+});
+
+
+
+
+// Endpoint para obtener la conversación de un número específico
 app.post('/get-chat-by-number', async (req, res) => {
     const { sessionId, phoneNumber } = req.body; // El phoneNumber debe incluir el código de país
 
@@ -481,13 +547,29 @@ app.post('/get-chat-by-number', async (req, res) => {
 
     const session = sessions[sessionId]; // Obtener la sesión correspondiente
 
-    // Verificar si la sesión existe
+    // Verificar si la sesión existe en memoria
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
     try {
-        // Verifica si los chats existen en el store
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía (sesión incompleta)
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
+        // Verificar si los chats existen en el store
         if (!store.chats) {
             return res.status(404).send('No se encontraron conversaciones.');
         }
@@ -510,7 +592,6 @@ app.post('/get-chat-by-number', async (req, res) => {
         res.status(500).send('Error al obtener la conversación: ' + err.message);
     }
 });
-
 
 // Endpoint para verificar el estado de la sesión (POST)
 app.post('/check-session', (req, res) => {
@@ -563,7 +644,6 @@ app.post('/check-session', (req, res) => {
 });
 
 
-
 app.post('/close-session-prev', (req, res) => {
     const { sessionId } = req.body;
 
@@ -599,6 +679,7 @@ app.post('/close-session-prev', (req, res) => {
 });
 
 
+// Endpoint para iniciar una sesión
 app.post('/start-session', async (req, res) => {
     const { sessionId } = req.body;
 
@@ -606,6 +687,10 @@ app.post('/start-session', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Falta el sessionId.' });
     }
 
+    // Ruta de la carpeta de la sesión
+    const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+    // Verificar si la sesión ya está activa en memoria
     if (sessions[sessionId]) {
         return res.status(400).json({
             success: false,
@@ -613,6 +698,15 @@ app.post('/start-session', async (req, res) => {
         });
     }
 
+    // Verificar si la carpeta de la sesión ya existe y no está vacía
+    if (fs.existsSync(sessionDirPath) && fs.readdirSync(sessionDirPath).length > 0) {
+        return res.status(400).json({
+            success: false,
+            message: `La sesión con ID ${sessionId} ya ha sido iniciada previamente. Por favor, cierra la sesión actual antes de reiniciarla.`,
+        });
+    }
+
+    // Iniciar una nueva sesión si no está activa y la carpeta no contiene datos
     try {
         await createSession(sessionId);
         res.status(200).json({ success: true, message: `Sesión ${sessionId} iniciada correctamente.` });
