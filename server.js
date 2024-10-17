@@ -178,6 +178,86 @@ sock.ev.on('messages.upsert', async (m) => {
                 await sock.sendMessage(from, { text: 'Por favor, proporciona un número de identificación válido.' });
             }
         }
+
+
+
+// Lógica para manejar el mensaje
+if (messageContent.startsWith('Comprar en ')) {
+    // Extraer la parte de "Comprar en"
+    const empresa = messageContent.split('Comprar en ')[1]?.trim();
+    console.log('Empresa extraída:', empresa);
+
+    // Comprobar si se proporcionó una empresa
+    if (empresa) {
+        try {
+            // Llamar a la API para buscar la empresa
+            const response = await axios.post('https://guibis.com/dev/wspguibis/searchempresa', {
+                search_empresa: empresa
+            });
+
+            console.log('Respuesta de la API buscar empresa:', response.data); // Log de la respuesta de la API
+
+            const data = response.data;
+
+            // Comprobar si la respuesta contiene la información esperada
+            if (data && data.key) {
+                const { key, nombres } = data;
+                console.log('Clave de la empresa:', key);
+                console.log('Nombres de la empresa:', nombres);
+
+                // Verificar si existe la sesión
+                const sessionExists = await checkSession(key); // Usar la función actualizada para verificar si la sesión existe
+                console.log('Estado de la sesión:', sessionExists);
+
+                if (sessionExists.valid) {
+                    // Informar al usuario sobre la empresa solo si la sesión está activa
+                    await sock.sendMessage(from, {
+                        text: `Hola Bienvenido a ${nombres}, estamos buscando los productos disponibles...`
+                    });
+
+                    // Llamar a la API para buscar productos
+                    const productosResponse = await axios.get('https://guibis.com/dev/wspguibis/searchproductos', {
+                        headers: { 'Authorization': `Bearer ${key}` } // Utiliza la key como token de sesión
+                    });
+
+                    console.log('Respuesta de la API buscar productos:', productosResponse.data); // Log de la respuesta de la API
+
+                    const productosData = productosResponse.data;
+
+                    // Enviar cada producto en un mensaje separado
+                    if (productosData && productosData.productos) {
+                        for (const producto of productosData.productos) {
+                            console.log('Producto encontrado:', producto); // Log de cada producto
+                            await sock.sendMessage(from, { text: producto });
+                        }
+                    } else {
+                        await sock.sendMessage(from, { text: 'No se encontraron productos disponibles.' });
+                    }
+                } else {
+                    console.log(`No hay sesión activa para la clave ${key}. No se enviará ningún mensaje.`);
+                  
+                }
+            } else {
+               // await sock.sendMessage(from, { text: 'No se encontró información para la empresa. Inténtalo más tarde.' });
+            }
+        } catch (error) {
+            console.error('Error al consumir la API:', error);
+            const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
+            //await sock.sendMessage(from, { text: errorMessage });
+        }
+    } else {
+      
+    }
+}
+
+
+
+
+
+
+
+
+        
         
 
 
@@ -186,6 +266,17 @@ sock.ev.on('messages.upsert', async (m) => {
 
     sessions[sessionId] = sock;
     sock.ev.on('creds.update', saveCreds);
+}
+
+async function checkSession(key) {
+    // Comprobar si la clave de sesión existe en el objeto sessions
+    const session = Object.values(sessions).find(sock => sock.authState.keys[key]);
+
+    if (session) {
+        return { valid: true }; // Si la sesión existe, devuelve que es válida
+    } else {
+        return { valid: false }; // Si no existe, devuelve que no es válida
+    }
 }
 
 // Endpoint para iniciar una nueva sesión (POST)
