@@ -378,7 +378,10 @@ app.post('/send-message', async (req, res) => {
     const { sessionId, to, message } = req.body;
 
     if (!sessionId || !to || !message) {
-        return res.status(400).send('sessionId, to y message son requeridos.');
+        return res.status(400).json({
+            error: true,
+            message: 'sessionId, to y message son requeridos.'
+        });
     }
 
     // Buscar la sesión en el objeto 'sessions'
@@ -463,7 +466,11 @@ app.post('/send-message', async (req, res) => {
 
         res.json({ message: 'Mensaje enviado correctamente.' });
     } catch (err) {
-        res.status(500).send('Error al enviar el mensaje: ' + err.message);
+        res.status(500).json({
+            error: true,
+            message: 'Error al enviar el mensaje: ' + err.message
+        });
+        
     }
 });
 
@@ -680,7 +687,8 @@ app.post('/get-chat-by-number', async (req, res) => {
         res.json(chat);
     } catch (err) {
         // Manejar errores en caso de que ocurra algo
-        res.status(500).send('Error al obtener la conversación: ' + err.message);
+        return res.status(500).json({ error: 'Error al obtener la conversación: ' + err.message });
+
     }
 });
 
@@ -690,7 +698,8 @@ app.post('/check-session', (req, res) => {
 
     // Validar que se proporcione un sessionId
     if (!sessionId) {
-        return res.status(400).send('El sessionId es requerido.');
+        return res.status(400).json({ error: 'El sessionId es requerido.' });
+
     }
 
     // Buscar la sesión en el objeto 'sessions'
