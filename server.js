@@ -8,6 +8,8 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios'); // Asegúrate de tener axios instalado
 const mime = require('mime-types'); // Para obtener el mime type de forma automática
+const { promisify } = require('util'); // Importar promisify
+const stream = require('stream');
 
 // Crear el store para almacenar contactos (declararlo globalmente)
 const store = makeInMemoryStore({});
@@ -66,203 +68,213 @@ async function createSession(sessionId) {
 
        // Escuchar mensajes entrantes
 
-// Escuchar mensajes entrantes
-sock.ev.on('messages.upsert', async (m) => {
-    const msg = m.messages[0];
-    if (!msg.key.fromMe && msg.message) {
-        const from = msg.key.remoteJid; // JID del remitente
-        const messageContent = msg.message.conversation || msg.message?.text || '';
+       sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.key.fromMe && msg.message) {
+            const from = msg.key.remoteJid; // JID del remitente
+            const messageContent = msg.message.conversation || msg.message?.text || '';
+            
+            // Imprimir la información deseada
+            console.log(`Mensaje recibido de: ${from}`);
+            console.log(`Contenido del mensaje: ${messageContent}`);
+            console.log(`Session ID: ${sessionId}`);
 
-        // Comprobar si el mensaje es 'hola'
-        if (messageContent.toLowerCase() === 'hola') {
-            let foundContact = false;
-            let sessionIdFound = null;
+            try {
+                const response = await axios.post('http://localhost/dev/wspguibis/system_gtp', {
+                    sessionId: sessionId,
+                    from: from,
+                    messageContent: messageContent,
+                    user: "usuario" // Asegúrate de definir el usuario correspondiente
+                });
+    
+                // Manejar la respuesta de la API
+                console.log('Respuesta de la API:', response.data);
+            } catch (error) {
+                console.error('Error al enviar los datos a la API:', error);
+            }
 
-            // Verificar si el número está en los contactos de todas las sesiones activas
-            for (const [sessionId, session] of Object.entries(sessions)) {
-                const contact = store.contacts[from];
 
-                if (contact) {
-                    foundContact = true;
-                    sessionIdFound = sessionId; // Guardar la sesión donde se encontró el contacto
-                    break; // Salir del bucle al encontrar el contacto
+            if (messageContent.toLowerCase() === 'hola') {
+                let foundContact = false;
+                let sessionIdFound = null;
+    
+                // Verificar si el número está en los contactos de todas las sesiones activas
+                for (const [sessionId, session] of Object.entries(sessions)) {
+                    const contact = store.contacts[from];
+    
+                    if (contact) {
+                        foundContact = true;
+                        sessionIdFound = sessionId; // Guardar la sesión donde se encontró el contacto
+                        break; // Salir del bucle al encontrar el contacto
+                    }
+                }
+    
+                if (foundContact) {
+                    // Responder con el número de sesión donde se encontró el contacto
+                    const response = `Hola, estoy en la sesión ${sessionIdFound}. ¿En qué puedo ayudarte?`;
+                    await sock.sendMessage(from, { text: response });
+                } else {
+                    // Responder si no se encontró el contacto en ninguna sesión
+                    await sock.sendMessage(from, { text: 'Hola, no te tengo en mis contactos.' });
                 }
             }
 
-            if (foundContact) {
-                // Responder con el número de sesión donde se encontró el contacto
-                const response = `Hola, estoy en la sesión ${sessionIdFound}. ¿En qué puedo ayudarte?`;
-                await sock.sendMessage(from, { text: response });
-            } else {
-                // Responder si no se encontró el contacto en ninguna sesión
-                await sock.sendMessage(from, { text: 'Hola, no te tengo en mis contactos.' });
-            }
-        }
 
-        if (messageContent.startsWith('guibis ') && sessionId === 'D395771085AAB05244A4FB8FD91BF4EE') {
-            // Extraer el número de identificación
-            const identificacion = messageContent.split(' ')[1];
-        
-            // Comprobar si se proporcionó un número de identificación
-            if (identificacion) {
-                try {
-                    // Llamar a la API
-                    const response = await axios.post('https://guibis.com/dev/wspguibis/', {
-                        identificacion: identificacion.trim()
-                    });
-        
-                    // Obtener el array de mensajes de la respuesta
-                    const mensajes = response.data?.mensajes || ['No existen datos en Guibis.'];
-        
-                    // Procesar cada mensaje por separado
-                    for (const mensaje of mensajes) {
-                        // Expresión regular para detectar URLs
-                        const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|pdf|mp4|docx|xlsx|zip|xml))/ig;
-                        const urlMatches = mensaje.match(urlRegex);
-                        const textWithoutUrls = mensaje.replace(urlRegex, '').trim();
-        
-                        // Enviar el mensaje sin URLs
-                        await sock.sendMessage(from, { text: textWithoutUrls });
-        
-                        // Si hay URLs, procesarlas
-                        if (urlMatches && urlMatches.length > 0) {
-                            for (const fileUrl of urlMatches) {
-                                const fileName = path.basename(fileUrl);
-                                const filePath = path.join(__dirname, 'files', fileName);
-        
-                                // Verificar si el archivo ya existe
-                                if (!fs.existsSync(filePath)) {
-                                    // Descargar el archivo si no existe
-                                    const response = await axios({
-                                        url: fileUrl,
-                                        method: 'GET',
-                                        responseType: 'stream'
+            if (messageContent.startsWith('guibis ') && sessionId === 'D395771085AAB05244A4FB8FD91BF4EE') {
+                // Extraer el número de identificación
+                const identificacion = messageContent.split(' ')[1];
+            
+                // Comprobar si se proporcionó un número de identificación
+                if (identificacion) {
+                    try {
+                        // Llamar a la API
+                        const response = await axios.post('https://guibis.com/dev/wspguibis/', {
+                            identificacion: identificacion.trim()
+                        });
+            
+                        // Obtener el array de mensajes de la respuesta
+                        const mensajes = response.data?.mensajes || ['No existen datos en Guibis.'];
+            
+                        // Procesar cada mensaje por separado
+                        for (const mensaje of mensajes) {
+                            // Expresión regular para detectar URLs
+                            const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|pdf|mp4|docx|xlsx|zip|xml))/ig;
+                            const urlMatches = mensaje.match(urlRegex);
+                            const textWithoutUrls = mensaje.replace(urlRegex, '').trim();
+            
+                            // Enviar el mensaje sin URLs
+                            await sock.sendMessage(from, { text: textWithoutUrls });
+            
+                            // Si hay URLs, procesarlas
+                            if (urlMatches && urlMatches.length > 0) {
+                                for (const fileUrl of urlMatches) {
+                                    const fileName = path.basename(fileUrl);
+                                    const filePath = path.join(__dirname, 'files', fileName);
+            
+                                    // Verificar si el archivo ya existe
+                                    if (!fs.existsSync(filePath)) {
+                                        // Descargar el archivo si no existe
+                                        const response = await axios({
+                                            url: fileUrl,
+                                            method: 'GET',
+                                            responseType: 'stream'
+                                        });
+            
+                                        // Guardar el archivo en la carpeta 'files'
+                                        const writer = fs.createWriteStream(filePath);
+                                        response.data.pipe(writer);
+            
+                                        await new Promise((resolve, reject) => {
+                                            writer.on('finish', resolve);
+                                            writer.on('error', reject);
+                                        });
+            
+                                        console.log(`Archivo descargado: ${filePath}`);
+                                    } else {
+                                        console.log(`Archivo ya existe: ${filePath}`);
+                                    }
+            
+                                    // Leer el archivo descargado y convertirlo en un buffer
+                                    const fileBuffer = fs.readFileSync(filePath);
+            
+                                    // Detectar el tipo MIME automáticamente según la extensión del archivo
+                                    const mimeType = mime.lookup(filePath) || 'application/octet-stream'; // Usa 'application/octet-stream' si no se puede detectar el tipo MIME
+            
+                                    // Enviar archivo multimedia usando Baileys
+                                    await sock.sendMessage(from, {
+                                        document: fileBuffer,
+                                        mimetype: mimeType,
+                                        fileName: fileName,
                                     });
-        
-                                    // Guardar el archivo en la carpeta 'files'
-                                    const writer = fs.createWriteStream(filePath);
-                                    response.data.pipe(writer);
-        
-                                    await new Promise((resolve, reject) => {
-                                        writer.on('finish', resolve);
-                                        writer.on('error', reject);
-                                    });
-        
-                                    console.log(`Archivo descargado: ${filePath}`);
-                                } else {
-                                    console.log(`Archivo ya existe: ${filePath}`);
+                                    console.log(`Archivo multimedia enviado: ${filePath}`);
                                 }
-        
-                                // Leer el archivo descargado y convertirlo en un buffer
-                                const fileBuffer = fs.readFileSync(filePath);
-        
-                                // Detectar el tipo MIME automáticamente según la extensión del archivo
-                                const mimeType = mime.lookup(filePath) || 'application/octet-stream'; // Usa 'application/octet-stream' si no se puede detectar el tipo MIME
-        
-                                // Enviar archivo multimedia usando Baileys
-                                await sock.sendMessage(from, {
-                                    document: fileBuffer,
-                                    mimetype: mimeType,
-                                    fileName: fileName,
-                                });
-                                console.log(`Archivo multimedia enviado: ${filePath}`);
                             }
                         }
-                    }
-                } catch (error) {
-                    console.error('Error al consumir la API:', error);
-                    const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
-                    await sock.sendMessage(from, { text: errorMessage });
-                }
-            } else {
-                await sock.sendMessage(from, { text: 'Por favor, proporciona un número de identificación válido.' });
-            }
-        }
-
-
-
-// Lógica para manejar el mensaje
-if (messageContent.startsWith('Comprar en ')) {
-    // Extraer la parte de "Comprar en"
-    const empresa = messageContent.split('Comprar en ')[1]?.trim();
-    console.log('Empresa extraída:', empresa);
-
-    // Comprobar si se proporcionó una empresa
-    if (empresa) {
-        try {
-            // Llamar a la API para buscar la empresa
-            const response = await axios.post('https://guibis.com/dev/wspguibis/searchempresa', {
-                search_empresa: empresa
-            });
-
-            console.log('Respuesta de la API buscar empresa:', response.data); // Log de la respuesta de la API
-
-            const data = response.data;
-
-            // Comprobar si la respuesta contiene la información esperada
-            if (data && data.key) {
-                const { key, nombres } = data;
-                console.log('Clave de la empresa:', key);
-                console.log('Nombres de la empresa:', nombres);
-
-                // Verificar si existe la sesión
-                const sessionExists = await checkSession(key); // Usar la función actualizada para verificar si la sesión existe
-                console.log('Estado de la sesión:', sessionExists);
-
-                if (sessionExists.valid) {
-                    // Informar al usuario sobre la empresa solo si la sesión está activa
-                    await sock.sendMessage(from, {
-                        text: `Hola Bienvenido a ${nombres}, estamos buscando los productos disponibles...`
-                    });
-
-                    // Llamar a la API para buscar productos
-                    const productosResponse = await axios.get('https://guibis.com/dev/wspguibis/searchproductos', {
-                        headers: { 'Authorization': `Bearer ${key}` } // Utiliza la key como token de sesión
-                    });
-
-                    console.log('Respuesta de la API buscar productos:', productosResponse.data); // Log de la respuesta de la API
-
-                    const productosData = productosResponse.data;
-
-                    // Enviar cada producto en un mensaje separado
-                    if (productosData && productosData.productos) {
-                        for (const producto of productosData.productos) {
-                            console.log('Producto encontrado:', producto); // Log de cada producto
-                            await sock.sendMessage(from, { text: producto });
-                        }
-                    } else {
-                        await sock.sendMessage(from, { text: 'No se encontraron productos disponibles.' });
+                    } catch (error) {
+                        console.error('Error al consumir la API:', error);
+                        const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
+                        await sock.sendMessage(from, { text: errorMessage });
                     }
                 } else {
-                    console.log(`No hay sesión activa para la clave ${key}. No se enviará ningún mensaje.`);
+                    await sock.sendMessage(from, { text: 'Por favor, proporciona un número de identificación válido.' });
+                }
+            }
+
+            if (messageContent.startsWith('Comprar en ')) {
+                // Extraer la parte de "Comprar en"
+                const empresa = messageContent.split('Comprar en ')[1]?.trim();
+                console.log('Empresa extraída:', empresa);
+            
+                // Comprobar si se proporcionó una empresa
+                if (empresa) {
+                    try {
+                        // Llamar a la API para buscar la empresa
+                        const response = await axios.post('https://guibis.com/dev/wspguibis/searchempresa', {
+                            search_empresa: empresa
+                        });
+            
+                        console.log('Respuesta de la API buscar empresa:', response.data); // Log de la respuesta de la API
+            
+                        const data = response.data;
+            
+                        // Comprobar si la respuesta contiene la información esperada
+                        if (data && data.key) {
+                            const { key, nombres } = data;
+                            console.log('Clave de la empresa:', key);
+                            console.log('Nombres de la empresa:', nombres);
+            
+                            // Verificar si existe la sesión
+                            const sessionExists = await checkSession(key); // Usar la función actualizada para verificar si la sesión existe
+                            console.log('Estado de la sesión:', sessionExists);
+            
+                            if (sessionExists.valid) {
+                                // Informar al usuario sobre la empresa solo si la sesión está activa
+                                await sock.sendMessage(from, {
+                                    text: `Hola Bienvenido a ${nombres}, estamos buscando los productos disponibles...`
+                                });
+            
+                                // Llamar a la API para buscar productos
+                                const productosResponse = await axios.get('https://guibis.com/dev/wspguibis/searchproductos', {
+                                    headers: { 'Authorization': `Bearer ${key}` } // Utiliza la key como token de sesión
+                                });
+            
+                                console.log('Respuesta de la API buscar productos:', productosResponse.data); // Log de la respuesta de la API
+            
+                                const productosData = productosResponse.data;
+            
+                                // Enviar cada producto en un mensaje separado
+                                if (productosData && productosData.productos) {
+                                    for (const producto of productosData.productos) {
+                                        console.log('Producto encontrado:', producto); // Log de cada producto
+                                        await sock.sendMessage(from, { text: producto });
+                                    }
+                                } else {
+                                    await sock.sendMessage(from, { text: 'No se encontraron productos disponibles.' });
+                                }
+                            } else {
+                                console.log(`No hay sesión activa para la clave ${key}. No se enviará ningún mensaje.`);
+                              
+                            }
+                        } else {
+                           // await sock.sendMessage(from, { text: 'No se encontró información para la empresa. Inténtalo más tarde.' });
+                        }
+                    } catch (error) {
+                        console.error('Error al consumir la API:', error);
+                        const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
+                        //await sock.sendMessage(from, { text: errorMessage });
+                    }
+                } else {
                   
                 }
-            } else {
-               // await sock.sendMessage(from, { text: 'No se encontró información para la empresa. Inténtalo más tarde.' });
             }
-        } catch (error) {
-            console.error('Error al consumir la API:', error);
-            const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
-            //await sock.sendMessage(from, { text: errorMessage });
+
+
+
+
+
+
         }
-    } else {
-      
-    }
-}
-
-
-
-
-
-
-
-
-        
-        
-
-
-    }
-});
+    });
 
     sessions[sessionId] = sock;
     sock.ev.on('creds.update', saveCreds);
@@ -814,6 +826,93 @@ app.post('/start-session', async (req, res) => {
         console.error('Error al crear la sesión:', error);
         res.status(500).json({ success: false, message: 'Error al iniciar la sesión.' });
     }
+});
+
+
+app.post('/download-file', async (req, res) => {
+    const { fileUrl } = req.body;
+
+    if (!fileUrl) {
+        console.log('Falta la URL del archivo en la solicitud.');
+        return res.status(400).json({ success: false, message: 'Falta la URL del archivo.' });
+    }
+
+    try {
+        console.log(`Intentando descargar el archivo desde: ${fileUrl}`);
+        const fileName = path.basename(fileUrl); // Obtener nombre del archivo
+        const filePath = path.join(__dirname, 'files', fileName); // Ruta de destino
+
+        console.log(`Ruta de destino: ${filePath}`);
+        const writer = fs.createWriteStream(filePath); // Crear stream de escritura
+
+        const response = await axios({
+            method: 'get',
+            url: fileUrl,
+            responseType: 'stream'
+        });
+
+        console.log('Respuesta recibida, empezando a guardar el archivo.');
+        response.data.pipe(writer); // Descargar el archivo
+
+        const finished = promisify(stream.finished); // Promesa para esperar hasta que el stream termine
+        await finished(writer);
+
+        console.log('Archivo descargado y guardado con éxito.');
+        return res.status(200).json({ success: true, message: 'Archivo descargado con éxito.', fileName });
+    } catch (error) {
+        console.error('Error al descargar el archivo:', error.message);
+        console.log('Detalles del error:', error); // Muestra detalles del error
+        return res.status(500).json({ success: false, message: 'Error al descargar el archivo.' });
+    }
+});
+
+
+// Endpoint para verificar la existencia de un archivo
+app.post('/check-file', (req, res) => {
+    const { fileName } = req.body;
+
+    if (!fileName) {
+        return res.status(400).json({ success: false, message: 'Falta el nombre del archivo.' });
+    }
+
+    const filePath = path.join(__dirname, 'files', fileName);
+
+    // Verificar si el archivo existe
+    fs.access(filePath, fs.constants.F_OK, (err) => {
+        if (err) {
+            return res.status(404).json({ success: false, message: 'El archivo no existe.' });
+        }
+        return res.status(200).json({ success: true, message: 'El archivo existe.', fileName });
+    });
+});
+
+
+
+// Endpoint para eliminar un archivo
+app.post('/delete-file', (req, res) => {
+    const { fileName } = req.body;
+
+    if (!fileName) {
+        return res.status(400).json({ success: false, message: 'Falta el nombre del archivo.' });
+    }
+
+    const filePath = path.join(__dirname, 'files', fileName);
+
+    fs.unlink(filePath, (err) => {
+        if (err) {
+            if (err.code === 'ENOENT') {
+                // El archivo no existe
+                return res.status(404).json({ success: false, message: 'El archivo no existe.' });
+            } else {
+                // Error al intentar eliminar el archivo
+                console.error('Error al eliminar el archivo:', err);
+                return res.status(500).json({ success: false, message: 'Error al eliminar el archivo.' });
+            }
+        }
+
+        // Archivo eliminado con éxito
+        return res.status(200).json({ success: true, message: 'Archivo eliminado con éxito.' });
+    });
 });
 
 

@@ -1,6 +1,8 @@
-const { default: makeWASocket, useMultiFileAuthState, makeInMemoryStore } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
+const cors = require('cors'); // Importa el paquete cors
 const express = require('express');
+const PORT = process.env.PORT || 3000; // Cambiar 3000 a la variable de entorno
+const { default: makeWASocket, useMultiFileAuthState, makeInMemoryStore, DisconnectReason } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
@@ -19,6 +21,7 @@ setInterval(() => {
 }, 10_000);
 
 const app = express();
+app.use(cors()); // Habilita CORS para todas las rutas
 app.use(express.json());
 
 // Almacenar las sesiones en un objeto
@@ -49,10 +52,10 @@ async function createSession(sessionId) {
         }
 
         if (connection === 'open') {
-            sock.connectionStatus = "activa"; // Actualizar estado a activa
             console.log(`Conexión abierta para la sesión ${sessionId}`);
+            sock.connectionStatus = "activa"; // Actualizar estado a activa
         } else if (connection === 'close') {
-            sock.connectionStatus = "inactiva"; // Actualizar estado a inactiva
+             sock.connectionStatus = "inactiva"; // Actualizar estado a inactiva
             const shouldReconnect = (lastDisconnect.error = Boom)?.output?.statusCode !== 401;
             console.log(`Conexión cerrada para la sesión ${sessionId}. Reintentando...`);
             if (shouldReconnect) {
@@ -96,7 +99,7 @@ sock.ev.on('messages.upsert', async (m) => {
             }
         }
 
-        if (messageContent.startsWith('guibis ') && sessionId === '4') {
+        if (messageContent.startsWith('guibis ') && sessionId === 'D395771085AAB05244A4FB8FD91BF4EE') {
             // Extraer el número de identificación
             const identificacion = messageContent.split(' ')[1];
         
@@ -111,11 +114,61 @@ sock.ev.on('messages.upsert', async (m) => {
                     // Obtener el array de mensajes de la respuesta
                     const mensajes = response.data?.mensajes || ['No existen datos en Guibis.'];
         
-                    // Unir los mensajes en una sola cadena
-                    const mensajeFinal = mensajes.join('\n'); // Unir con un salto de línea entre mensajes
+                    // Procesar cada mensaje por separado
+                    for (const mensaje of mensajes) {
+                        // Expresión regular para detectar URLs
+                        const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|pdf|mp4|docx|xlsx|zip|xml))/ig;
+                        const urlMatches = mensaje.match(urlRegex);
+                        const textWithoutUrls = mensaje.replace(urlRegex, '').trim();
         
-                    // Enviar la respuesta de la API
-                    await sock.sendMessage(from, { text: mensajeFinal });
+                        // Enviar el mensaje sin URLs
+                        await sock.sendMessage(from, { text: textWithoutUrls });
+        
+                        // Si hay URLs, procesarlas
+                        if (urlMatches && urlMatches.length > 0) {
+                            for (const fileUrl of urlMatches) {
+                                const fileName = path.basename(fileUrl);
+                                const filePath = path.join(__dirname, 'files', fileName);
+        
+                                // Verificar si el archivo ya existe
+                                if (!fs.existsSync(filePath)) {
+                                    // Descargar el archivo si no existe
+                                    const response = await axios({
+                                        url: fileUrl,
+                                        method: 'GET',
+                                        responseType: 'stream'
+                                    });
+        
+                                    // Guardar el archivo en la carpeta 'files'
+                                    const writer = fs.createWriteStream(filePath);
+                                    response.data.pipe(writer);
+        
+                                    await new Promise((resolve, reject) => {
+                                        writer.on('finish', resolve);
+                                        writer.on('error', reject);
+                                    });
+        
+                                    console.log(`Archivo descargado: ${filePath}`);
+                                } else {
+                                    console.log(`Archivo ya existe: ${filePath}`);
+                                }
+        
+                                // Leer el archivo descargado y convertirlo en un buffer
+                                const fileBuffer = fs.readFileSync(filePath);
+        
+                                // Detectar el tipo MIME automáticamente según la extensión del archivo
+                                const mimeType = mime.lookup(filePath) || 'application/octet-stream'; // Usa 'application/octet-stream' si no se puede detectar el tipo MIME
+        
+                                // Enviar archivo multimedia usando Baileys
+                                await sock.sendMessage(from, {
+                                    document: fileBuffer,
+                                    mimetype: mimeType,
+                                    fileName: fileName,
+                                });
+                                console.log(`Archivo multimedia enviado: ${filePath}`);
+                            }
+                        }
+                    }
                 } catch (error) {
                     console.error('Error al consumir la API:', error);
                     const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
@@ -126,40 +179,104 @@ sock.ev.on('messages.upsert', async (m) => {
             }
         }
 
-        if (messageContent.startsWith('lgcontaduria ')) {
-            // Extraer el número de identificación
-            const identificacion = messageContent.split(' ')[1];
-        
-            // Comprobar si se proporcionó un número de identificación
-            if (identificacion) {
-                try {
-                    // Llamar a la API
-                    const response = await axios.post('https://guibis.com/dev/wspguibis/', {
-                        identificacion: identificacion.trim()
+
+
+// Lógica para manejar el mensaje
+if (messageContent.startsWith('Comprar en ')) {
+    // Extraer la parte de "Comprar en"
+    const empresa = messageContent.split('Comprar en ')[1]?.trim();
+    console.log('Empresa extraída:', empresa);
+
+    // Comprobar si se proporcionó una empresa
+    if (empresa) {
+        try {
+            // Llamar a la API para buscar la empresa
+            const response = await axios.post('https://guibis.com/dev/wspguibis/searchempresa', {
+                search_empresa: empresa
+            });
+
+            console.log('Respuesta de la API buscar empresa:', response.data); // Log de la respuesta de la API
+
+            const data = response.data;
+
+            // Comprobar si la respuesta contiene la información esperada
+            if (data && data.key) {
+                const { key, nombres } = data;
+                console.log('Clave de la empresa:', key);
+                console.log('Nombres de la empresa:', nombres);
+
+                // Verificar si existe la sesión
+                const sessionExists = await checkSession(key); // Usar la función actualizada para verificar si la sesión existe
+                console.log('Estado de la sesión:', sessionExists);
+
+                if (sessionExists.valid) {
+                    // Informar al usuario sobre la empresa solo si la sesión está activa
+                    await sock.sendMessage(from, {
+                        text: `Hola Bienvenido a ${nombres}, estamos buscando los productos disponibles...`
                     });
-        
-                    // Obtener el array de mensajes de la respuesta
-                    const mensajes = response.data?.mensajes || ['No existen datos en Guibis.'];
-        
-                    // Unir los mensajes en una sola cadena
-                    const mensajeFinal = mensajes.join('\n'); // Unir con un salto de línea entre mensajes
-        
-                    // Enviar la respuesta de la API
-                    await sock.sendMessage(from, { text: mensajeFinal });
-                } catch (error) {
-                    console.error('Error al consumir la API:', error);
-                    const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
-                    await sock.sendMessage(from, { text: errorMessage });
+
+                    // Llamar a la API para buscar productos
+                    const productosResponse = await axios.get('https://guibis.com/dev/wspguibis/searchproductos', {
+                        headers: { 'Authorization': `Bearer ${key}` } // Utiliza la key como token de sesión
+                    });
+
+                    console.log('Respuesta de la API buscar productos:', productosResponse.data); // Log de la respuesta de la API
+
+                    const productosData = productosResponse.data;
+
+                    // Enviar cada producto en un mensaje separado
+                    if (productosData && productosData.productos) {
+                        for (const producto of productosData.productos) {
+                            console.log('Producto encontrado:', producto); // Log de cada producto
+                            await sock.sendMessage(from, { text: producto });
+                        }
+                    } else {
+                        await sock.sendMessage(from, { text: 'No se encontraron productos disponibles.' });
+                    }
+                } else {
+                    console.log(`No hay sesión activa para la clave ${key}. No se enviará ningún mensaje.`);
+                  
                 }
             } else {
-                await sock.sendMessage(from, { text: 'Por favor, proporciona un número de identificación válido.' });
+               // await sock.sendMessage(from, { text: 'No se encontró información para la empresa. Inténtalo más tarde.' });
             }
+        } catch (error) {
+            console.error('Error al consumir la API:', error);
+            const errorMessage = error.response?.data?.mensaje || 'Error al consultar la API. Inténtalo más tarde.';
+            //await sock.sendMessage(from, { text: errorMessage });
         }
+    } else {
+      
+    }
+}
+
+
+
+
+
+
+
+
+        
+        
+
+
     }
 });
 
     sessions[sessionId] = sock;
     sock.ev.on('creds.update', saveCreds);
+}
+
+async function checkSession(key) {
+    // Comprobar si la clave de sesión existe en el objeto sessions
+    const session = Object.values(sessions).find(sock => sock.authState.keys[key]);
+
+    if (session) {
+        return { valid: true }; // Si la sesión existe, devuelve que es válida
+    } else {
+        return { valid: false }; // Si no existe, devuelve que no es válida
+    }
 }
 
 // Endpoint para iniciar una nueva sesión (POST)
@@ -184,7 +301,7 @@ app.post('/reset-session-prev', async (req, res) => {
 
 
 
-// Endpoint para cerrar una sesión existente (POST)
+// Ruta para cerrar sesión
 app.post('/close-session-full', async (req, res) => {
     const { sessionId } = req.body;
 
@@ -204,15 +321,32 @@ app.post('/close-session-full', async (req, res) => {
         });
     }
 
-    // Intentar cerrar la sesión usando Baileys
     try {
-        await sessions[sessionId].logout(); // Cierra la sesión
-        delete sessions[sessionId]; // Elimina la sesión de nuestra lista
+        const sock = sessions[sessionId];
+
+        // Cerrar la sesión y eliminar del almacenamiento
+        await sock.logout();
+        delete sessions[sessionId]; 
+
+         // Eliminar la carpeta de sesión
+         const sessionPath = path.join(__dirname, 'sessions', sessionId);
+         fs.rmdir(sessionPath, { recursive: true }, (err) => {
+             if (err) {
+                 console.error(`Error al eliminar la carpeta de la sesión ${sessionId}:`, err);
+             } else {
+                 console.log(`Carpeta de la sesión ${sessionId} eliminada correctamente.`);
+             }
+         });
+ 
+
+
+
         console.log(`Sesión ${sessionId} cerrada correctamente.`);
         return res.json({
             success: true,
             message: `Sesión ${sessionId} cerrada correctamente.`
         });
+
     } catch (error) {
         console.error(`Error cerrando la sesión ${sessionId}:`, error);
         return res.status(500).json({
@@ -222,6 +356,7 @@ app.post('/close-session-full', async (req, res) => {
         });
     }
 });
+
 
 
 // Endpoint para obtener el QR de una sesión (GET)
@@ -236,28 +371,50 @@ app.get('/get-qr/:sessionId', (req, res) => {
     }
 });
 
+
+
 // Endpoint para enviar mensajes
 app.post('/send-message', async (req, res) => {
     const { sessionId, to, message } = req.body;
 
     if (!sessionId || !to || !message) {
-        return res.status(400).send('sessionId, to y message son requeridos.');
+        return res.status(400).json({
+            error: true,
+            message: 'sessionId, to y message son requeridos.'
+        });
     }
 
+    // Buscar la sesión en el objeto 'sessions'
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
     try {
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
         // Expresión regular para detectar URLs de archivos multimedia
         const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|pdf|mp4|docx|xlsx|zip|xml))/ig;
         const urlMatches = message.match(urlRegex);
         const textWithoutUrls = message.replace(urlRegex, '').trim();
 
+        // Procesar archivos multimedia
         if (urlMatches && urlMatches.length > 0) {
-            // Procesar cada URL detectada
             for (const fileUrl of urlMatches) {
                 const fileName = path.basename(fileUrl);
                 const filePath = path.join(__dirname, 'files', fileName);
@@ -289,7 +446,7 @@ app.post('/send-message', async (req, res) => {
                 const fileBuffer = fs.readFileSync(filePath);
 
                 // Detectar el tipo MIME automáticamente según la extensión del archivo
-                const mimeType = mime.lookup(filePath) || 'application/octet-stream'; // Usa 'application/octet-stream' si no se puede detectar el tipo MIME
+                const mimeType = mime.lookup(filePath) || 'application/octet-stream';
 
                 // Enviar archivo multimedia usando Baileys
                 await session.sendMessage(`${to}@s.whatsapp.net`, {
@@ -301,17 +458,22 @@ app.post('/send-message', async (req, res) => {
             }
         }
 
-        // Si hay texto sin URLs, enviar como mensaje de texto
+        // Enviar texto si hay algún mensaje sin URLs
         if (textWithoutUrls) {
             await session.sendMessage(`${to}@s.whatsapp.net`, { text: textWithoutUrls });
             console.log('Mensaje de texto enviado correctamente.');
         }
 
-        res.send('Mensaje enviado correctamente.');
+        res.json({ message: 'Mensaje enviado correctamente.' });
     } catch (err) {
-        res.status(500).send('Error al enviar el mensaje: ' + err.message);
+        res.status(500).json({
+            error: true,
+            message: 'Error al enviar el mensaje: ' + err.message
+        });
+        
     }
 });
+
 
 // Endpoint para obtener contactos (POST)
 app.post('/get-contacts', async (req, res) => {
@@ -323,44 +485,109 @@ app.post('/get-contacts', async (req, res) => {
 
     const session = sessions[sessionId];
 
+    // Verificar si la sesión existe en la memoria
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
     try {
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
+        // Si la carpeta no está vacía, se asume que la sesión está completa
         // Acceder a los contactos desde store.contacts
         const contacts = store.contacts;
         res.json(contacts);
+
     } catch (err) {
         res.status(500).send('Error al obtener los contactos: ' + err.message);
     }
 });
 
 
+function timeoutPromise(promise, ms) {
+    const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Tiempo agotado')), ms)
+    );
+    return Promise.race([promise, timeout]);
+}
 
-// Endpoint para obtener la lista de grupos (POST)
+
+
+// Endpoint para obtener grupos
 app.post('/get-groups', async (req, res) => {
     const { sessionId } = req.body;
 
     if (!sessionId) {
-        return res.status(400).send('El sessionId es requerido.');
+        return res.status(400).json({ error: 'El sessionId es requerido.' });
     }
 
+    // Buscar la sesión en el objeto 'sessions'
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
     try {
-        const groups = await session.groupFetchAllParticipating();
-        res.json(groups);
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
+        // Limitar la búsqueda de grupos a 8 segundos
+        const groups = await timeoutPromise(session.groupFetchAllParticipating(), 8000);
+
+        if (groups && Object.keys(groups).length > 0) {
+            res.json(groups); // Si se encuentran grupos, los devuelve
+        } else {
+            res.status(404).json({ error: 'No se encontraron grupos.' });
+        }
     } catch (err) {
-        res.status(500).send('Error al obtener la lista de grupos: ' + err.message);
+        // Manejar el error de tiempo de espera sin mostrarlo en consola
+        if (err.message === 'Tiempo agotado') {
+            return res.status(408).json({
+                status: 'error',
+                message: 'Tiempo de espera agotado. No se encontraron grupos en el tiempo permitido.'
+            });
+        }
+
+        // Para cualquier otro error, envía un mensaje JSON sin imprimir en consola
+        res.status(500).json({
+            status: 'error',
+            message: 'Error al obtener la lista de grupos.'
+        });
     }
 });
 
 
+
+
+// Endpoint para obtener todas las conversaciones (chats)
 app.post('/get-all-chats', async (req, res) => {
     const { sessionId } = req.body;
 
@@ -368,14 +595,31 @@ app.post('/get-all-chats', async (req, res) => {
         return res.status(400).send('El sessionId es requerido.');
     }
 
+    // Buscar la sesión en el objeto 'sessions'
     const session = sessions[sessionId];
 
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
     try {
-        // Verificar si store.chats está definido y contiene conversaciones
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
+        // Verificar si 'store.chats' está definido y contiene conversaciones
         if (!store.chats || store.chats.all().length === 0) {
             return res.status(404).send('No se encontraron conversaciones.');
         }
@@ -389,7 +633,8 @@ app.post('/get-all-chats', async (req, res) => {
 
 
 
-// Endpoint para obtener la conversación de un número específico (POST)
+
+// Endpoint para obtener la conversación de un número específico
 app.post('/get-chat-by-number', async (req, res) => {
     const { sessionId, phoneNumber } = req.body; // El phoneNumber debe incluir el código de país
 
@@ -400,13 +645,29 @@ app.post('/get-chat-by-number', async (req, res) => {
 
     const session = sessions[sessionId]; // Obtener la sesión correspondiente
 
-    // Verificar si la sesión existe
+    // Verificar si la sesión existe en memoria
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
     try {
-        // Verifica si los chats existen en el store
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía (sesión incompleta)
+        if (filesInSessionDir.length === 0) {
+            return res.status(400).json({ error: 'La sesión no ha sido completada (no se ha escaneado el QR).' });
+        }
+
+        // Verificar si los chats existen en el store
         if (!store.chats) {
             return res.status(404).send('No se encontraron conversaciones.');
         }
@@ -426,10 +687,10 @@ app.post('/get-chat-by-number', async (req, res) => {
         res.json(chat);
     } catch (err) {
         // Manejar errores en caso de que ocurra algo
-        res.status(500).send('Error al obtener la conversación: ' + err.message);
+        return res.status(500).json({ error: 'Error al obtener la conversación: ' + err.message });
+
     }
 });
-
 
 // Endpoint para verificar el estado de la sesión (POST)
 app.post('/check-session', (req, res) => {
@@ -437,24 +698,50 @@ app.post('/check-session', (req, res) => {
 
     // Validar que se proporcione un sessionId
     if (!sessionId) {
-        return res.status(400).send('El sessionId es requerido.');
+        return res.status(400).json({ error: 'El sessionId es requerido.' });
+
     }
 
     // Buscar la sesión en el objeto 'sessions'
     const session = sessions[sessionId];
 
-    // Comprobar si la sesión existe
+    // Comprobar si la sesión existe en memoria
     if (!session) {
-        return res.status(404).json({ error: 'Sesión no encontrada.' });
+        return res.status(404).json({ error: 'Sesión no encontrada en la memoria.' });
     }
 
-    // Devolver el estado actual de la sesión
-    res.json({
-        sessionId: sessionId,
-        status: session.connectionStatus // Devuelve "activa" o "inactiva"
-    });
-});
+    try {
+        // Ruta de la carpeta de la sesión
+        const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
 
+        // Verificar si la carpeta de la sesión existe
+        if (!fs.existsSync(sessionDirPath)) {
+            return res.status(404).json({ error: 'Sesión no encontrada en la carpeta de sesiones.' });
+        }
+
+        // Leer el contenido de la carpeta
+        const filesInSessionDir = fs.readdirSync(sessionDirPath);
+
+        // Verificar si la carpeta está vacía
+        if (filesInSessionDir.length === 0) {
+            return res.status(200).json({
+                sessionId: sessionId,
+                status: 'inactiva', // La sesión no ha sido completada (QR no escaneado)
+                message: 'La sesión no ha sido completada (no se ha escaneado el QR).'
+            });
+        }
+
+        // Si la carpeta no está vacía, la sesión se considera completada
+        res.status(200).json({
+            sessionId: sessionId,
+            status: 'activa', // Sesión completada
+            message: 'La sesión está completa.'
+        });
+
+    } catch (err) {
+        res.status(500).send('Error al verificar la sesión: ' + err.message);
+    }
+});
 
 
 app.post('/close-session-prev', (req, res) => {
@@ -492,6 +779,7 @@ app.post('/close-session-prev', (req, res) => {
 });
 
 
+// Endpoint para iniciar una sesión
 app.post('/start-session', async (req, res) => {
     const { sessionId } = req.body;
 
@@ -499,6 +787,10 @@ app.post('/start-session', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Falta el sessionId.' });
     }
 
+    // Ruta de la carpeta de la sesión
+    const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+    // Verificar si la sesión ya está activa en memoria
     if (sessions[sessionId]) {
         return res.status(400).json({
             success: false,
@@ -506,6 +798,15 @@ app.post('/start-session', async (req, res) => {
         });
     }
 
+    // Verificar si la carpeta de la sesión ya existe y no está vacía
+    if (fs.existsSync(sessionDirPath) && fs.readdirSync(sessionDirPath).length > 0) {
+        return res.status(400).json({
+            success: false,
+            message: `La sesión con ID ${sessionId} ya ha sido iniciada previamente. Por favor, cierra la sesión actual antes de reiniciarla.`,
+        });
+    }
+
+    // Iniciar una nueva sesión si no está activa y la carpeta no contiene datos
     try {
         await createSession(sessionId);
         res.status(200).json({ success: true, message: `Sesión ${sessionId} iniciada correctamente.` });
@@ -516,9 +817,51 @@ app.post('/start-session', async (req, res) => {
 });
 
 
+// Cargar sesiones existentes al iniciar el servidor
+async function loadExistingSessions() {
+    const sessionsDir = './sessions';
+    const sessionDirs = fs.readdirSync(sessionsDir).filter(file => fs.statSync(path.join(sessionsDir, file)).isDirectory());
+
+    for (const sessionId of sessionDirs) {
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+            try {
+                // Intentar crear la sesión y almacenar el socket en el objeto sessions
+                await createSession(sessionId);
+                console.log(`Sesión ${sessionId} cargada correctamente.`);
+
+                // Actualizar estado a activa en el objeto sessions
+                sessions[sessionId].connectionStatus = "activa"; 
+                break; // Salir del bucle si la sesión se carga correctamente
+            } catch (error) {
+                attempts++;
+                console.error(`Error al cargar la sesión ${sessionId}. Intento ${attempts} de ${maxAttempts}.`, error);
+
+                // Si se alcanzó el número máximo de intentos
+                if (attempts === maxAttempts) {
+                    console.error(`No se pudo cargar la sesión ${sessionId} después de ${maxAttempts} intentos. Pasando a la siguiente.`);
+                    
+                    // Actualizar estado a inactiva en el objeto sessions
+                    if (sessions[sessionId]) {
+                        sessions[sessionId].connectionStatus = "inactiva"; 
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+
 // Servir los QR codes generados como imágenes estáticas
 app.use('/qrcodes', express.static(path.join(__dirname, 'qrcodes')));
 
-app.listen(3000, '0.0.0.0', () => {
-    console.log('Servidor ejecutándose en el puerto 3000');
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Servidor ejecutándose en el puerto ${PORT}`);
+    loadExistingSessions(); // Cargar sesiones existentes (sin await)
+    console.log('Iniciando carga de sesiones existentes...');
 });
+
