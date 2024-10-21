@@ -868,6 +868,7 @@ app.post('/download-file', async (req, res) => {
 
 
 // Endpoint para verificar la existencia de un archivo
+// Endpoint para verificar la existencia de un archivo y obtener su tamaño
 app.post('/check-file', (req, res) => {
     const { fileName } = req.body;
 
@@ -877,15 +878,67 @@ app.post('/check-file', (req, res) => {
 
     const filePath = path.join(__dirname, 'files', fileName);
 
-    // Verificar si el archivo existe
-    fs.access(filePath, fs.constants.F_OK, (err) => {
+    // Verificar si el archivo existe y obtener su información
+    fs.stat(filePath, (err, stats) => {
         if (err) {
-            return res.status(404).json({ success: false, message: 'El archivo no existe.' });
+            if (err.code === 'ENOENT') {
+                // El archivo no existe
+                return res.status(404).json({ success: false, message: 'El archivo no existe.' });
+            } else {
+                // Otro error
+                console.error('Error al obtener información del archivo:', err);
+                return res.status(500).json({ success: false, message: 'Error al verificar el archivo.' });
+            }
         }
-        return res.status(200).json({ success: true, message: 'El archivo existe.', fileName });
+
+        // Archivo existe, enviar información
+        return res.status(200).json({
+            success: true,
+            message: 'El archivo existe.',
+            fileName,
+            size: stats.size, // Tamaño del archivo en bytes
+            createdAt: stats.birthtime, // Fecha de creación
+            modifiedAt: stats.mtime // Fecha de última modificación
+        });
     });
 });
 
+
+// Endpoint para eliminar todas las carpetas y archivos en 'files'
+app.post('/clear-files', (req, res) => {
+    const dirPath = path.join(__dirname, 'files');
+
+    // Verificar si la carpeta 'files' existe
+    if (!fs.existsSync(dirPath)) {
+        return res.status(404).json({ success: false, message: 'La carpeta "files" no existe.' });
+    }
+
+    // Función para eliminar recursivamente el contenido de la carpeta
+    const deleteFolderContents = (folderPath) => {
+        // Obtener todos los elementos dentro de la carpeta
+        const files = fs.readdirSync(folderPath);
+        for (const file of files) {
+            const filePath = path.join(folderPath, file);
+            const stat = fs.statSync(filePath);
+
+            // Si es un directorio, llamar recursivamente
+            if (stat.isDirectory()) {
+                deleteFolderContents(filePath);
+                fs.rmdirSync(filePath); // Eliminar el directorio una vez vaciado
+            } else {
+                fs.unlinkSync(filePath); // Eliminar el archivo
+            }
+        }
+    };
+
+    try {
+        deleteFolderContents(dirPath); // Eliminar el contenido de 'files'
+        return res.status(200).json({ success: true, message: 'Todos los archivos y carpetas han sido eliminados de "files".' });
+    } catch (error) {
+        console.error('Error al eliminar el contenido de la carpeta "files":', error);
+        return res.status(500).json({ success: false, message: 'Error al limpiar la carpeta "files".' });
+    }
+});
 
 
 // Endpoint para eliminar un archivo
