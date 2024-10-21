@@ -972,6 +972,14 @@ app.post('/delete-file', (req, res) => {
 // Cargar sesiones existentes al iniciar el servidor
 async function loadExistingSessions() {
     const sessionsDir = './sessions';
+
+    // Verificar si la carpeta 'sessions' existe
+    if (!fs.existsSync(sessionsDir)) {
+        console.warn(`La carpeta "${sessionsDir}" no existe. No se cargarán sesiones.`);
+        return; // Salir de la función si la carpeta no existe
+    }
+
+    // Leer directorios dentro de 'sessions'
     const sessionDirs = fs.readdirSync(sessionsDir).filter(file => fs.statSync(path.join(sessionsDir, file)).isDirectory());
 
     for (const sessionId of sessionDirs) {
@@ -994,7 +1002,7 @@ async function loadExistingSessions() {
                 // Si se alcanzó el número máximo de intentos
                 if (attempts === maxAttempts) {
                     console.error(`No se pudo cargar la sesión ${sessionId} después de ${maxAttempts} intentos. Pasando a la siguiente.`);
-                    
+
                     // Actualizar estado a inactiva en el objeto sessions
                     if (sessions[sessionId]) {
                         sessions[sessionId].connectionStatus = "inactiva"; 
@@ -1004,6 +1012,7 @@ async function loadExistingSessions() {
         }
     }
 }
+
 
 
 
