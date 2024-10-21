@@ -970,7 +970,6 @@ app.post('/delete-file', (req, res) => {
 
 
 // Cargar sesiones existentes al iniciar el servidor
-// Cargar sesiones existentes al iniciar el servidor
 async function loadExistingSessions() {
     const sessionsDir = './sessions';
 
@@ -978,6 +977,7 @@ async function loadExistingSessions() {
     if (!fs.existsSync(sessionsDir)) {
         fs.mkdirSync(sessionsDir, { recursive: true });
         console.log(`La carpeta "${sessionsDir}" ha sido creada.`);
+        return; // Salir si se creó la carpeta, ya que no hay sesiones que cargar
     }
 
     // Leer directorios dentro de 'sessions'
@@ -988,10 +988,10 @@ async function loadExistingSessions() {
         let attempts = 0;
         const maxAttempts = 3;
 
-        // Verificar si la subcarpeta de la sesión existe, si no, crearla
+        // Verificar si la subcarpeta de la sesión existe
         if (!fs.existsSync(sessionDirPath)) {
-            fs.mkdirSync(sessionDirPath, { recursive: true });
-            console.log(`La carpeta "${sessionDirPath}" ha sido creada.`);
+            console.warn(`La carpeta de sesión "${sessionDirPath}" no existe. Omitiendo la carga de esta sesión.`);
+            continue; // Omitir esta sesión si no existe
         }
 
         while (attempts < maxAttempts) {
@@ -1020,6 +1020,8 @@ async function loadExistingSessions() {
         }
     }
 }
+
+
 
 
 
