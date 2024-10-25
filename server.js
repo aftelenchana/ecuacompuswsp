@@ -386,6 +386,7 @@ app.get('/get-qr/:sessionId', (req, res) => {
 
 
 // Endpoint para enviar mensajes
+// Endpoint para enviar mensajes
 app.post('/send-message', async (req, res) => {
     const { sessionId, to, message } = req.body;
 
@@ -425,9 +426,12 @@ app.post('/send-message', async (req, res) => {
         const urlMatches = message.match(urlRegex);
         const textWithoutUrls = message.replace(urlRegex, '').trim();
 
+        let textUsedAsCaption = false;  // Indicador para saber si el texto ya se usó como leyenda
+
         // Procesar archivos multimedia
         if (urlMatches && urlMatches.length > 0) {
-            for (const fileUrl of urlMatches) {
+            for (let i = 0; i < urlMatches.length; i++) {
+                const fileUrl = urlMatches[i];
                 const fileName = path.basename(fileUrl);
                 const filePath = path.join(__dirname, 'files', fileName);
 
@@ -460,18 +464,36 @@ app.post('/send-message', async (req, res) => {
                 // Detectar el tipo MIME automáticamente según la extensión del archivo
                 const mimeType = mime.lookup(filePath) || 'application/octet-stream';
 
-                // Enviar archivo multimedia usando Baileys
-                await session.sendMessage(`${to}@s.whatsapp.net`, {
-                    document: fileBuffer,
-                    mimetype: mimeType,
-                    fileName: fileName,
-                });
-                console.log(`Archivo multimedia enviado: ${filePath}`);
+                if (mimeType.startsWith('image/')) {
+                    // Enviar imagen
+                    await session.sendMessage(`${to}@s.whatsapp.net`, {
+                        image: fileBuffer,
+                        caption: !textUsedAsCaption && textWithoutUrls ? textWithoutUrls : null // Agregar leyenda solo en la primera imagen
+                    });
+                    textUsedAsCaption = true; // Marcar que el texto ya se usó
+                    console.log(`Imagen enviada: ${filePath}`);
+                } else if (mimeType.startsWith('video/')) {
+                    // Enviar video
+                    await session.sendMessage(`${to}@s.whatsapp.net`, {
+                        video: fileBuffer,
+                        caption: !textUsedAsCaption && textWithoutUrls ? textWithoutUrls : null // Agregar leyenda solo en el primer video
+                    });
+                    textUsedAsCaption = true; // Marcar que el texto ya se usó
+                    console.log(`Video enviado: ${filePath}`);
+                } else {
+                    // Enviar como documento para otros tipos de archivos
+                    await session.sendMessage(`${to}@s.whatsapp.net`, {
+                        document: fileBuffer,
+                        mimetype: mimeType,
+                        fileName: fileName,
+                    });
+                    console.log(`Archivo multimedia enviado: ${filePath}`);
+                }
             }
         }
 
-        // Enviar texto si hay algún mensaje sin URLs
-        if (textWithoutUrls) {
+        // Enviar texto si no se usó como leyenda y hay mensaje sin URLs
+        if (!textUsedAsCaption && textWithoutUrls) {
             await session.sendMessage(`${to}@s.whatsapp.net`, { text: textWithoutUrls });
             console.log('Mensaje de texto enviado correctamente.');
         }
@@ -482,7 +504,6 @@ app.post('/send-message', async (req, res) => {
             error: true,
             message: 'Error al enviar el mensaje: ' + err.message
         });
-        
     }
 });
 
@@ -791,6 +812,45 @@ app.post('/close-session-prev', (req, res) => {
 });
 
 
+
+
+app.post('/close-all-sessions', (req, res) => {
+    // Recorrer cada sesión activa en el objeto 'sessions'
+    for (const sessionId in sessions) {
+        const session = sessions[sessionId];
+
+        // Finalizar la sesión si existe
+        if (session) {
+            session.end(true);
+            console.log(`Sesión ${sessionId} cerrada.`);
+        }
+
+        // Eliminar la sesión del objeto 'sessions'
+        delete sessions[sessionId];
+
+        // Eliminar el archivo QR correspondiente
+        const qrCodePath = path.join(__dirname, 'qrcodes', `${sessionId}.png`);
+        if (fs.existsSync(qrCodePath)) {
+            fs.unlinkSync(qrCodePath);
+            console.log(`Archivo QR ${qrCodePath} eliminado.`);
+        }
+    }
+
+    // Eliminar todas las carpetas en la carpeta 'sessions'
+    const sessionsDir = path.join(__dirname, 'sessions');
+    if (fs.existsSync(sessionsDir)) {
+        fs.readdirSync(sessionsDir).forEach((file) => {
+            const filePath = path.join(sessionsDir, file);
+            if (fs.lstatSync(filePath).isDirectory()) {
+                fs.rmSync(filePath, { recursive: true, force: true });
+                console.log(`Directorio de sesión ${filePath} eliminado.`);
+            }
+        });
+    }
+
+    res.send({ message: 'Todas las sesiones cerradas y archivos eliminados correctamente.' });
+});
+
 // Endpoint para iniciar una sesión
 app.post('/start-session', async (req, res) => {
     const { sessionId } = req.body;
@@ -867,7 +927,6 @@ app.post('/download-file', async (req, res) => {
 });
 
 
-// Endpoint para verificar la existencia de un archivo
 // Endpoint para verificar la existencia de un archivo y obtener su tamaño
 app.post('/check-file', (req, res) => {
     const { fileName } = req.body;
