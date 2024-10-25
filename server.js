@@ -49,7 +49,17 @@ async function createSession(sessionId) {
         const { connection, qr, lastDisconnect } = update;
 
         if (qr) {
-            const qrCodePath = path.join(__dirname, 'qrcodes', `${sessionId}.png`);
+            const qrCodeDir = path.join(__dirname, 'qrcodes');
+            const qrCodePath = path.join(qrCodeDir, `${sessionId}.png`);
+        
+            // Verifica si la carpeta existe
+            if (!fs.existsSync(qrCodeDir)) {
+                // Si no existe, crea la carpeta
+                fs.mkdirSync(qrCodeDir, { recursive: true });
+                console.log(`La carpeta '${qrCodeDir}' no existía y ha sido creada.`);
+            }
+        
+            // Genera el código QR y guarda el archivo
             await qrcode.toFile(qrCodePath, qr);
         }
 
