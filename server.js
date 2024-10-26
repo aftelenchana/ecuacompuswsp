@@ -1034,12 +1034,19 @@ app.post('/delete-file', (req, res) => {
 // Cargar sesiones existentes al iniciar el servidor
 async function loadExistingSessions() {
     const sessionsDir = './sessions';
+    const filesDir = './files'; // Definir la ruta para la carpeta 'files'
 
     // Verificar si la carpeta 'sessions' existe, si no, crearla
     if (!fs.existsSync(sessionsDir)) {
         fs.mkdirSync(sessionsDir, { recursive: true });
         console.log(`La carpeta "${sessionsDir}" ha sido creada.`);
         return; // Salir si se creó la carpeta, ya que no hay sesiones que cargar
+    }
+
+    // Verificar si la carpeta 'files' existe, si no, crearla
+    if (!fs.existsSync(filesDir)) {
+        fs.mkdirSync(filesDir, { recursive: true });
+        console.log(`La carpeta "${filesDir}" ha sido creada.`);
     }
 
     // Leer directorios dentro de 'sessions'
@@ -1060,7 +1067,7 @@ async function loadExistingSessions() {
             try {
                 // Intentar crear la sesión y almacenar el socket en el objeto sessions
                 await createSession(sessionId);
-               // console.log(`Sesión ${sessionId} cargada correctamente.`);
+                // console.log(`Sesión ${sessionId} cargada correctamente.`);
 
                 // Actualizar estado a activa en el objeto sessions
                 sessions[sessionId].connectionStatus = "activa"; 
@@ -1082,6 +1089,8 @@ async function loadExistingSessions() {
         }
     }
 }
+
+
 
 
 
