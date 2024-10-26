@@ -64,12 +64,12 @@ async function createSession(sessionId) {
         }
 
         if (connection === 'open') {
-            console.log(`Conexión abierta para la sesión ${sessionId}`);
+            //console.log(`Conexión abierta para la sesión ${sessionId}`);
             sock.connectionStatus = "activa"; // Actualizar estado a activa
         } else if (connection === 'close') {
              sock.connectionStatus = "inactiva"; // Actualizar estado a inactiva
             const shouldReconnect = (lastDisconnect.error = Boom)?.output?.statusCode !== 401;
-            console.log(`Conexión cerrada para la sesión ${sessionId}. Reintentando...`);
+            //console.log(`Conexión cerrada para la sesión ${sessionId}. Reintentando...`);
             if (shouldReconnect) {
                 await createSession(sessionId);
             }
@@ -84,50 +84,43 @@ async function createSession(sessionId) {
             const from = msg.key.remoteJid; // JID del remitente
             const messageContent = msg.message.conversation || msg.message?.text || '';
             
-            // Imprimir la información deseada
-            console.log(`Mensaje recibido de: ${from}`);
-            console.log(`Contenido del mensaje: ${messageContent}`);
-            console.log(`Session ID: ${sessionId}`);
+           // Imprimir la información deseada
+           // Imprimir la información recibida
+                console.log(`Mensaje recibido de: ${from}`);
+                console.log(`Contenido del mensaje: ${messageContent}`);
+                console.log(`Session ID: ${sessionId}`);
 
-            try {
-                const response = await axios.post('http://localhost/dev/wspguibis/system_gtp', {
-                    sessionId: sessionId,
-                    from: from,
-                    messageContent: messageContent,
-                    user: "usuario" // Asegúrate de definir el usuario correspondiente
-                });
-    
-                // Manejar la respuesta de la API
-                console.log('Respuesta de la API:', response.data);
-            } catch (error) {
-                console.error('Error al enviar los datos a la API:', error);
-            }
+                try {
+                    // Llamar a la API
+                    console.log('Enviando datos a la API...');
+                    const response = await axios.post('http://localhost/dev/wspguibis/system_gtp', {
+                        sessionId: sessionId,
+                        from: from,
+                        messageContent: messageContent,
+                        user: "usuario" // Asegúrate de definir el usuario correspondiente
+                    });
 
+                    // Imprimir la respuesta de la API
+                    console.log('Respuesta de la API de conectividad:', response.data);
 
-            if (messageContent.toLowerCase() === 'hola') {
-                let foundContact = false;
-                let sessionIdFound = null;
-    
-                // Verificar si el número está en los contactos de todas las sesiones activas
-                for (const [sessionId, session] of Object.entries(sessions)) {
-                    const contact = store.contacts[from];
-    
-                    if (contact) {
-                        foundContact = true;
-                        sessionIdFound = sessionId; // Guardar la sesión donde se encontró el contacto
-                        break; // Salir del bucle al encontrar el contacto
+                    // Validar si la respuesta cumple con los requisitos
+                    if (response.data.fuente === "bot_interno" && response.data.nivel === "1") {
+                        const mensaje = response.data.mensaje;
+
+                        // Enviar el mensaje con el sessionId que corresponde
+                        await sock.sendMessage(from, { text: mensaje });
+                        console.log(`Mensaje enviado a ${from}: ${mensaje}`);
+                    } else {
+                        console.log("Condiciones no cumplidas para enviar el mensaje.");
+                        console.log(`Fuente: ${response.data.fuente}, Nivel: ${response.data.nivel}`);
                     }
+                } catch (error) {
+                    console.error('Error al consumir la API o al enviar el mensaje:', error);
+                    console.error('Detalles del error:', error.response ? error.response.data : error.message);
                 }
-    
-                if (foundContact) {
-                    // Responder con el número de sesión donde se encontró el contacto
-                    const response = `Hola, estoy en la sesión ${sessionIdFound}. ¿En qué puedo ayudarte?`;
-                    await sock.sendMessage(from, { text: response });
-                } else {
-                    // Responder si no se encontró el contacto en ninguna sesión
-                    await sock.sendMessage(from, { text: 'Hola, no te tengo en mis contactos.' });
-                }
-            }
+
+
+         
 
 
             if (messageContent.startsWith('guibis ') && sessionId === 'D395771085AAB05244A4FB8FD91BF4EE') {
@@ -1067,7 +1060,7 @@ async function loadExistingSessions() {
             try {
                 // Intentar crear la sesión y almacenar el socket en el objeto sessions
                 await createSession(sessionId);
-                console.log(`Sesión ${sessionId} cargada correctamente.`);
+               // console.log(`Sesión ${sessionId} cargada correctamente.`);
 
                 // Actualizar estado a activa en el objeto sessions
                 sessions[sessionId].connectionStatus = "activa"; 
