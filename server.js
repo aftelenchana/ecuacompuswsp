@@ -122,8 +122,91 @@ async function createSession(sessionId) {
                     // Verificar que el mensaje no esté vacío y que 'from' no contenga '@newsletter'
                     if (mensaje && !from.includes('@newsletter')) {
                         // Enviar el mensaje con el sessionId que corresponde
-                        await sock.sendMessage(from, { text: mensaje });
-                        console.log(`Mensaje enviado a ${from}: ${mensaje}`);
+
+
+                        // Expresión regular para detectar URLs de archivos multimedia
+                            const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|pdf|mp4|docx|xlsx|zip|xml))/ig;
+                            const urlMatches = mensaje.match(urlRegex);
+                            const textWithoutUrls = mensaje.replace(urlRegex, '').trim();
+
+                            let textUsedAsCaption = false; // Indicador para saber si el texto ya se usó como leyenda
+
+                            // Procesar y enviar archivos multimedia si existen URLs en el mensaje
+                            if (urlMatches && urlMatches.length > 0) {
+                                for (let i = 0; i < urlMatches.length; i++) {
+                                    const fileUrl = urlMatches[i];
+                                    const fileName = path.basename(fileUrl);
+                                    const filePath = path.join(__dirname, 'files', fileName);
+
+                                    // Verificar si el archivo ya existe
+                                    if (!fs.existsSync(filePath)) {
+                                        // Descargar el archivo
+                                        const response = await axios({
+                                            url: fileUrl,
+                                            method: 'GET',
+                                            responseType: 'stream'
+                                        });
+
+                                        // Guardar el archivo en la carpeta 'files'
+                                        const writer = fs.createWriteStream(filePath);
+                                        response.data.pipe(writer);
+
+                                        await new Promise((resolve, reject) => {
+                                            writer.on('finish', resolve);
+                                            writer.on('error', reject);
+                                        });
+
+                                        console.log(`Archivo descargado: ${filePath}`);
+                                    } else {
+                                        console.log(`Archivo ya existe: ${filePath}`);
+                                    }
+
+                                    // Leer el archivo descargado y convertirlo en un buffer
+                                    const fileBuffer = fs.readFileSync(filePath);
+
+                                    // Detectar el tipo MIME automáticamente según la extensión del archivo
+                                    const mimeType = mime.lookup(filePath) || 'application/octet-stream';
+
+                                    if (mimeType.startsWith('image/')) {
+                                        // Enviar imagen
+                                        await sock.sendMessage(from, {
+                                            image: fileBuffer,
+                                            caption: !textUsedAsCaption && textWithoutUrls ? textWithoutUrls : null // Agregar leyenda solo en la primera imagen
+                                        });
+                                        textUsedAsCaption = true; // Marcar que el texto ya se usó
+                                        console.log(`Imagen enviada: ${filePath}`);
+                                    } else if (mimeType.startsWith('video/')) {
+                                        // Enviar video
+                                        await sock.sendMessage(from, {
+                                            video: fileBuffer,
+                                            caption: !textUsedAsCaption && textWithoutUrls ? textWithoutUrls : null // Agregar leyenda solo en el primer video
+                                        });
+                                        textUsedAsCaption = true; // Marcar que el texto ya se usó
+                                        console.log(`Video enviado: ${filePath}`);
+                                    } else {
+                                        // Enviar como documento para otros tipos de archivos
+                                        await sock.sendMessage(from, {
+                                            document: fileBuffer,
+                                            mimetype: mimeType,
+                                            fileName: fileName,
+                                        });
+                                        console.log(`Archivo multimedia enviado: ${filePath}`);
+                                    }
+                                }
+                            }
+
+                            // Enviar el mensaje de texto si no se usó como leyenda y si hay texto sin URLs
+                            if (!textUsedAsCaption && textWithoutUrls) {
+                                await sock.sendMessage(from, { text: textWithoutUrls });
+                                console.log(`Mensaje de texto enviado a ${from}: ${textWithoutUrls}`);
+                            }
+
+                            res.json({ message: 'Mensaje enviado correctamente.' });
+
+
+
+
+
                     } else {
                         if (!mensaje) {
                             console.log("Mensaje vacío. No se enviará el mensaje.");
