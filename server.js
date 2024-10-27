@@ -81,14 +81,21 @@ async function createSession(sessionId) {
        sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.key.fromMe && msg.message) {
-            const from = msg.key.remoteJid; // JID del remitente
-            const messageContent = msg.message.conversation || msg.message?.text || '';
-            
-           // Imprimir la información deseada
-           // Imprimir la información recibida
-                console.log(`Mensaje recibido de: ${from}`);
-                console.log(`Contenido del mensaje: ${messageContent}`);
-                console.log(`Session ID: ${sessionId}`);
+            const from = msg.key.remoteJid;
+            let messageContent = '';
+    
+            // Manejar diferentes tipos de mensajes
+            if (msg.message.conversation) {
+                messageContent = msg.message.conversation;
+            } else if (msg.message.text) {
+                messageContent = msg.message.text;
+            } else if (msg.message.extendedTextMessage) {
+                messageContent = msg.message.extendedTextMessage.text;
+            } else if (msg.message.imageMessage) {
+                messageContent = '[Imagen recibida]';
+            } else if (msg.message.documentMessage) {
+                messageContent = '[Documento recibido]';
+            }
 
                 try {
                     // Llamar a la API
