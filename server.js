@@ -102,6 +102,8 @@ async function createSession(sessionId) {
               console.log(`Contenido del mensaje: ${messageContent}`);
               console.log(`Session ID: ${sessionId}`);
 
+            if (!from.includes('@newsletter') && !from.includes('status@broadcast')) {
+
               try {
                 // Llamar a la API
                 console.log('Enviando datos a la API...');
@@ -120,11 +122,7 @@ async function createSession(sessionId) {
                     const mensaje = response.data.mensaje;
             
                     // Verificar que el mensaje no esté vacío y que 'from' no contenga '@newsletter'
-                    if (mensaje && !from.includes('@newsletter')) {
-                        // Enviar el mensaje con el sessionId que corresponde
-
-
-                        // Expresión regular para detectar URLs de archivos multimedia
+                    if (mensaje) {
                             const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|pdf|mp4|docx|xlsx|zip|xml))/ig;
                             const urlMatches = mensaje.match(urlRegex);
                             const textWithoutUrls = mensaje.replace(urlRegex, '').trim();
@@ -224,7 +222,9 @@ async function createSession(sessionId) {
                 console.error('Detalles del error:', error.response ? error.response.data : error.message);
             }
             
-
+        }else{
+            console.log("Números con especificaciones no permitidas");
+        }
          
 
 
