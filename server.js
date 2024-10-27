@@ -97,35 +97,50 @@ async function createSession(sessionId) {
                 messageContent = '[Documento recibido]';
             }
 
-                try {
-                    // Llamar a la API
-                    console.log('Enviando datos a la API...');
-                    const response = await axios.post('https://guibis.com/dev/wspguibis/system_gtp', {
-                        sessionId: sessionId,
-                        from: from,
-                        messageContent: messageContent,
-                        user: "usuario" // Asegúrate de definir el usuario correspondiente
-                    });
+              // Imprimir la información deseada
+              console.log(`Mensaje recibido de: ${from}`);
+              console.log(`Contenido del mensaje: ${messageContent}`);
+              console.log(`Session ID: ${sessionId}`);
 
-                    // Imprimir la respuesta de la API
-                    console.log('Respuesta de la API de conectividad:', response.data);
-
-                    // Validar si la respuesta cumple con los requisitos
-                    if (response.data.fuente === "bot_interno" && response.data.nivel === "1") {
-                        const mensaje = response.data.mensaje;
-
+              try {
+                // Llamar a la API
+                console.log('Enviando datos a la API...');
+                const response = await axios.post('http://localhost/dev/wspguibis/system_gtp', {
+                    sessionId: sessionId,
+                    from: from,
+                    messageContent: messageContent,
+                    user: "usuario" // Define el usuario correspondiente
+                });
+            
+                // Imprimir la respuesta de la API
+                console.log('Respuesta de la API de conectividad:', response.data);
+            
+                // Validar si la respuesta cumple con los requisitos
+                if (response.data.fuente === "bot_interno" && response.data.nivel === "1") {
+                    const mensaje = response.data.mensaje;
+            
+                    // Verificar que el mensaje no esté vacío y que 'from' no contenga '@newsletter'
+                    if (mensaje && !from.includes('@newsletter')) {
                         // Enviar el mensaje con el sessionId que corresponde
                         await sock.sendMessage(from, { text: mensaje });
                         console.log(`Mensaje enviado a ${from}: ${mensaje}`);
                     } else {
-                        console.log("Condiciones no cumplidas para enviar el mensaje.");
-                        console.log(`Fuente: ${response.data.fuente}, Nivel: ${response.data.nivel}`);
+                        if (!mensaje) {
+                            console.log("Mensaje vacío. No se enviará el mensaje.");
+                        }
+                        if (from.includes('@newsletter')) {
+                            console.log("El destinatario es un newsletter. No se enviará el mensaje.");
+                        }
                     }
-                } catch (error) {
-                    console.error('Error al consumir la API o al enviar el mensaje:', error);
-                    console.error('Detalles del error:', error.response ? error.response.data : error.message);
+                } else {
+                    console.log("Condiciones no cumplidas para enviar el mensaje.");
+                    console.log(`Fuente: ${response.data.fuente}, Nivel: ${response.data.nivel}`);
                 }
-
+            } catch (error) {
+                console.error('Error al consumir la API o al enviar el mensaje:', error);
+                console.error('Detalles del error:', error.response ? error.response.data : error.message);
+            }
+            
 
          
 
@@ -284,6 +299,52 @@ async function createSession(sessionId) {
 
 
         }
+
+//COLOCAR LOS MENSAJES SALIENTES EN CAMBIO 
+
+if (msg.key.fromMe && msg.message) {
+    const to = msg.key.remoteJid; // JID del destinatario
+    let messageContent = '';
+
+    // Manejar diferentes tipos de mensajes de salida
+    if (msg.message.conversation) {
+        messageContent = msg.message.conversation;
+    } else if (msg.message.text) {
+        messageContent = msg.message.text;
+    } else if (msg.message.extendedTextMessage) {
+        messageContent = msg.message.extendedTextMessage.text;
+    } else if (msg.message.imageMessage) {
+        messageContent = '[Imagen enviada]';
+    } else if (msg.message.documentMessage) {
+        messageContent = '[Documento enviado]';
+    }
+
+    // Imprimir la información deseada
+    console.log(`Session ID SALIENTE: ${sessionId}`);
+    console.log(`Mensaje enviado a: ${to}`);
+    console.log(`Contenido del mensaje: ${messageContent}`);
+
+    // Enviar datos a la API para cambiar el estado de activo a inactivo
+    console.log('Enviando datos a la API...');
+
+    try {
+        const response = await axios.post('http://localhost/dev/wspguibis/system_gtp_salientes', {
+            sessionId: sessionId,
+            from: to,
+            messageContent: messageContent,
+            user: "usuario" // Define el usuario correspondiente
+        });
+        
+        // Mostrar la respuesta de la API en la consola
+        console.log('Respuesta de la API:', response.data);
+    } catch (error) {
+        console.error('Error al enviar los datos a la API:', error);
+    }
+}
+
+
+
+
     });
 
     sessions[sessionId] = sock;
