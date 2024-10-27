@@ -1182,6 +1182,9 @@ app.post('/delete-file', (req, res) => {
 });
 
 
+//
+
+
 // Cargar sesiones existentes al iniciar el servidor
 async function loadExistingSessions() {
     const sessionsDir = './sessions';
@@ -1243,10 +1246,59 @@ async function loadExistingSessions() {
 
 
 
+// Endpoint para cargar una sesión específica
+app.post('/load-session', async (req, res) => {
+    const { sessionId } = req.body;
 
+    console.log(`Solicitud recibida para cargar la sesión: ${sessionId}`);
 
+    // Validación inicial: verificar si se proporcionó sessionId
+    if (!sessionId) {
+        console.log('Error: Falta el sessionId en la solicitud.');
+        return res.status(400).json({ success: false, message: 'Falta el sessionId.' });
+    }
 
+    const sessionsDir = './sessions';
+    const sessionDirPath = path.join(sessionsDir, sessionId);
 
+    // Verificar si la carpeta 'sessions' existe
+    if (!fs.existsSync(sessionsDir)) {
+        console.log(`Error: La carpeta "${sessionsDir}" no existe.`);
+        return res.status(404).json({ success: false, message: 'No hay sesiones existentes para cargar.' });
+    }
+
+    // Verificar si la carpeta de la sesión específica existe
+    if (!fs.existsSync(sessionDirPath)) {
+        console.log(`Error: La sesión con ID ${sessionId} no existe.`);
+        return res.status(404).json({ success: false, message: `La sesión con ID ${sessionId} no existe.` });
+    }
+
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
+        try {
+            // Aquí, simplemente marcamos la sesión como activa
+            if (!sessions[sessionId]) {
+                sessions[sessionId] = { connectionStatus: 'activa' };
+                console.log(`Sesión ${sessionId} cargada y marcada como activa.`);
+            } else {
+                sessions[sessionId].connectionStatus = 'activa';
+                console.log(`Sesión ${sessionId} ya estaba en memoria. Estado actualizado a activa.`);
+            }
+            return res.status(200).json({ success: true, message: `Sesión ${sessionId} cargada correctamente.` });
+        } catch (error) {
+            attempts++;
+            console.error(`Error al cargar la sesión ${sessionId}. Intento ${attempts} de ${maxAttempts}.`, error);
+
+            // Si se alcanzó el número máximo de intentos
+            if (attempts === maxAttempts) {
+                console.error(`No se pudo cargar la sesión ${sessionId} después de ${maxAttempts} intentos.`);
+                return res.status(500).json({ success: false, message: `No se pudo cargar la sesión ${sessionId} después de ${maxAttempts} intentos.` });
+            }
+        }
+    }
+});
 
 
 // Servir los QR codes generados como imágenes estáticas
