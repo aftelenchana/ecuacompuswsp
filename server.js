@@ -107,7 +107,7 @@ async function createSession(sessionId) {
               try {
                 // Llamar a la API
                 console.log('Enviando datos a la API...');
-                const response = await axios.post('https://guibis.com/dev/wspguibis/system_gtp', {
+                const response = await axios.post('https://ecuacompus.com/dev/wspguibis/system_gtp', {
                     sessionId: sessionId,
                     from: from,
                     messageContent: messageContent,
@@ -411,7 +411,7 @@ if (msg.key.fromMe && msg.message) {
     console.log('Enviando datos a la API...');
 
     try {
-        const response = await axios.post('https://guibis.com/dev/wspguibis/system_gtp_salientes', {
+        const response = await axios.post('https://ecuacompus.com/dev/wspguibis/system_gtp_salientes', {
             sessionId: sessionId,
             from: to,
             messageContent: messageContent,
